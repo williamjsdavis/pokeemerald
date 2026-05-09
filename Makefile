@@ -14,12 +14,19 @@ BUILD_DIR := build
 MODERN      ?= 0
 # Compares the ROM to a checksum of the original - only makes sense using when non-modern
 COMPARE     ?= 0
+# Builds the test ROM (ebf-ai backport: separate ROM with CB2_TestRunner
+# as the boot callback). Implies MODERN=1.
+TEST        ?= 0
 
 ifeq (modern,$(MAKECMDGOALS))
   MODERN := 1
 endif
 ifeq (compare,$(MAKECMDGOALS))
   COMPARE := 1
+endif
+ifeq (test,$(MAKECMDGOALS))
+  MODERN := 1
+  TEST := 1
 endif
 
 # Default make rule
@@ -71,15 +78,22 @@ ROM_NAME := $(FILE_NAME).gba
 OBJ_DIR_NAME := $(BUILD_DIR)/emerald
 MODERN_ROM_NAME := $(FILE_NAME)_modern.gba
 MODERN_OBJ_DIR_NAME := $(BUILD_DIR)/modern
+TEST_ROM_NAME := $(FILE_NAME)-test.gba
+TEST_OBJ_DIR_NAME := $(BUILD_DIR)/test
 ASSETS_DIR_NAME := $(BUILD_DIR)/assets
 
 ELF_NAME := $(ROM_NAME:.gba=.elf)
 MAP_NAME := $(ROM_NAME:.gba=.map)
 MODERN_ELF_NAME := $(MODERN_ROM_NAME:.gba=.elf)
 MODERN_MAP_NAME := $(MODERN_ROM_NAME:.gba=.map)
+TEST_ELF_NAME := $(TEST_ROM_NAME:.gba=.elf)
+TEST_MAP_NAME := $(TEST_ROM_NAME:.gba=.map)
 
 # Pick our active variables
-ifeq ($(MODERN),0)
+ifeq ($(TEST),1)
+  ROM := $(TEST_ROM_NAME)
+  OBJ_DIR := $(TEST_OBJ_DIR_NAME)
+else ifeq ($(MODERN),0)
   ROM := $(ROM_NAME)
   OBJ_DIR := $(OBJ_DIR_NAME)
 else
@@ -96,11 +110,13 @@ ASM_SUBDIR = asm
 DATA_SRC_SUBDIR = src/data
 DATA_ASM_SUBDIR = data
 MID_SUBDIR = sound/songs/midi
+TEST_SUBDIR = test
 
 C_BUILDDIR = $(OBJ_DIR)/$(C_SUBDIR)
 ASM_BUILDDIR = $(OBJ_DIR)/$(ASM_SUBDIR)
 DATA_ASM_BUILDDIR = $(OBJ_DIR)/$(DATA_ASM_SUBDIR)
 MID_BUILDDIR = $(OBJ_DIR)/$(MID_SUBDIR)
+TEST_BUILDDIR = $(OBJ_DIR)/$(TEST_SUBDIR)
 
 SHELL := bash -o pipefail
 
@@ -112,7 +128,7 @@ INCLUDE_CPP_ARGS := $(INCLUDE_DIRS:%=-iquote %)
 INCLUDE_SCANINC_ARGS := $(INCLUDE_DIRS:%=-I %)
 
 O_LEVEL ?= 2
-CPPFLAGS := $(INCLUDE_CPP_ARGS) -Wno-trigraphs -DMODERN=$(MODERN)
+CPPFLAGS := $(INCLUDE_CPP_ARGS) -Wno-trigraphs -DMODERN=$(MODERN) -DTESTING=$(TEST)
 ifeq ($(MODERN),0)
   CPPFLAGS += -I tools/agbcc/include -I tools/agbcc -nostdinc -undef -std=gnu89
   CC1 := tools/agbcc/bin/agbcc$(EXE)
@@ -159,7 +175,7 @@ MAKEFLAGS += --no-print-directory
 # Delete files that weren't built properly
 .DELETE_ON_ERROR:
 
-RULES_NO_SCAN += libagbsyscall clean clean-assets tidy tidymodern tidynonmodern generated clean-generated
+RULES_NO_SCAN += libagbsyscall clean clean-assets tidy tidymodern tidynonmodern tidytest generated clean-generated
 .PHONY: all rom modern compare
 .PHONY: $(RULES_NO_SCAN)
 
@@ -210,7 +226,16 @@ DATA_ASM_OBJS := $(patsubst $(DATA_ASM_SUBDIR)/%.s,$(DATA_ASM_BUILDDIR)/%.o,$(DA
 MID_SRCS := $(wildcard $(MID_SUBDIR)/*.mid)
 MID_OBJS := $(patsubst $(MID_SUBDIR)/%.mid,$(MID_BUILDDIR)/%.o,$(MID_SRCS))
 
-OBJS     := $(C_OBJS) $(C_ASM_OBJS) $(ASM_OBJS) $(DATA_ASM_OBJS) $(MID_OBJS)
+# ebf-ai backport: only-when-TEST sources for the headless test harness.
+TEST_SRCS_IN := $(wildcard $(TEST_SUBDIR)/*.c)
+TEST_SRCS := $(TEST_SRCS_IN)
+TEST_OBJS := $(patsubst $(TEST_SUBDIR)/%.c,$(TEST_BUILDDIR)/%.o,$(TEST_SRCS))
+
+ifeq ($(TEST),1)
+  OBJS := $(C_OBJS) $(C_ASM_OBJS) $(ASM_OBJS) $(DATA_ASM_OBJS) $(MID_OBJS) $(TEST_OBJS)
+else
+  OBJS := $(C_OBJS) $(C_ASM_OBJS) $(ASM_OBJS) $(DATA_ASM_OBJS) $(MID_OBJS)
+endif
 OBJS_REL := $(patsubst $(OBJ_DIR)/%,%,$(OBJS))
 
 SUBDIRS  := $(sort $(dir $(OBJS)))
@@ -219,6 +244,7 @@ $(shell mkdir -p $(SUBDIRS))
 # Pretend rules that are actually flags defer to `make all`
 modern: all
 compare: all
+test: all
 
 # Other rules
 rom: $(ROM)
@@ -240,7 +266,7 @@ clean-assets:
 	find . \( -iname '*.1bpp' -o -iname '*.4bpp' -o -iname '*.8bpp' -o -iname '*.gbapal' -o -iname '*.lz' -o -iname '*.rl' -o -iname '*.latfont' -o -iname '*.hwjpnfont' -o -iname '*.fwjpnfont' \) -exec rm {} +
 	find $(DATA_ASM_SUBDIR)/maps \( -iname 'connections.inc' -o -iname 'events.inc' -o -iname 'header.inc' \) -exec rm {} +
 
-tidy: tidynonmodern tidymodern
+tidy: tidynonmodern tidymodern tidytest
 
 tidynonmodern:
 	rm -f $(ROM_NAME) $(ELF_NAME) $(MAP_NAME)
@@ -249,6 +275,10 @@ tidynonmodern:
 tidymodern:
 	rm -f $(MODERN_ROM_NAME) $(MODERN_ELF_NAME) $(MODERN_MAP_NAME)
 	rm -rf $(MODERN_OBJ_DIR_NAME)
+
+tidytest:
+	rm -f $(TEST_ROM_NAME) $(TEST_ELF_NAME) $(TEST_MAP_NAME)
+	rm -rf $(TEST_OBJ_DIR_NAME)
 
 # Other rules
 include graphics_file_rules.mk
@@ -335,6 +365,26 @@ $(C_BUILDDIR)/%.o: $(C_SUBDIR)/%.s
 $(C_BUILDDIR)/%.d: $(C_SUBDIR)/%.s
 	$(SCANINC) -M $@ -g $(ASSETS_DIR_NAME) $(INCLUDE_SCANINC_ARGS) -I "" $<
 
+# ebf-ai backport: build rule for test/*.c. Mirrors the C_SUBDIR rule
+# but applies only to test sources (so they sit under build/test/test/).
+$(TEST_BUILDDIR)/%.o: $(TEST_SUBDIR)/%.c
+ifneq ($(KEEP_TEMPS),1)
+	@echo "$(CC1) <flags> -o $@ $<"
+	@$(CPP) $(CPPFLAGS) $< | $(PREPROC) -i -g $(ASSETS_DIR_NAME) $< charmap.txt | $(CC1) $(CFLAGS) -o - - | cat - <(echo -e ".text\n\t.align\t2, 0") | $(AS) $(ASFLAGS) -o $@ -
+else
+	@$(CPP) $(CPPFLAGS) $< -o $(TEST_BUILDDIR)/$*.i
+	@$(PREPROC) -g $(ASSETS_DIR_NAME) $(TEST_BUILDDIR)/$*.i charmap.txt | $(CC1) $(CFLAGS) -o $(TEST_BUILDDIR)/$*.s
+	@echo -e ".text\n\t.align\t2, 0\n" >> $(TEST_BUILDDIR)/$*.s
+	$(AS) $(ASFLAGS) -o $@ $(TEST_BUILDDIR)/$*.s
+endif
+
+$(TEST_BUILDDIR)/%.d: $(TEST_SUBDIR)/%.c
+	$(SCANINC) -M $@ -g $(ASSETS_DIR_NAME) $(INCLUDE_SCANINC_ARGS) $<
+
+ifneq ($(NODEP),1)
+-include $(addprefix $(OBJ_DIR)/,$(TEST_SRCS:.c=.d))
+endif
+
 ifneq ($(NODEP),1)
 -include $(addprefix $(OBJ_DIR)/,$(C_ASM_SRCS:.s=.d))
 endif
@@ -359,7 +409,10 @@ $(OBJ_DIR)/sym_ewram.ld: sym_ewram.txt
 	$(RAMSCRGEN) ewram_data $< ENGLISH > $@
 
 # Linker script
-ifeq ($(MODERN),0)
+ifeq ($(TEST),1)
+LD_SCRIPT := ld_script_test.ld
+LD_SCRIPT_DEPS :=
+else ifeq ($(MODERN),0)
 LD_SCRIPT := ld_script.ld
 LD_SCRIPT_DEPS := $(OBJ_DIR)/sym_bss.ld $(OBJ_DIR)/sym_common.ld $(OBJ_DIR)/sym_ewram.ld
 else

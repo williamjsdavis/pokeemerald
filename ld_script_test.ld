@@ -1,8 +1,22 @@
+/*
+ * ld_script_test.ld
+ *
+ * Linker script for the test ROM produced by `make test`. Identical to
+ * ld_script_modern.ld in section layout; the only material difference
+ * is that gInitialMainCB2 resolves to CB2_TestRunner instead of the
+ * normal title-screen path. This causes the test ROM to skip directly
+ * into the test harness on boot.
+ *
+ * The test/ object directory is included in the .text and bss sections
+ * so the harness's compilation units link in alongside the rest of the
+ * engine code.
+ */
+
 ENTRY(Start)
 
 gNumMusicPlayers = 4;
 gMaxLines = 0;
-gInitialMainCB2 = CB2_InitCopyrightScreenAfterBootup;
+gInitialMainCB2 = CB2_TestRunner;
 
 MEMORY
 {
@@ -17,6 +31,7 @@ SECTIONS {
     ALIGN(4)
     {
         src/*.o(ewram_data);
+        test/*.o(ewram_data);
     } > EWRAM
 
     iwram 0x3000000 (NOLOAD) :
@@ -24,6 +39,7 @@ SECTIONS {
     {
         src/*.o(.bss);
         data/*.o(.bss);
+        test/*.o(.bss);
         *libc.a:*.o(.bss*);
         *libnosys.a:*.o(.bss*);
 
@@ -31,6 +47,7 @@ SECTIONS {
 
         src/*.o(common_data);
         src/*.o(COMMON);
+        test/*.o(COMMON);
         *libc.a:*.o(COMMON);
         *libnosys.a:*.o(COMMON);
     } > IWRAM
@@ -47,6 +64,7 @@ SECTIONS {
         src/main.o(.text);
         src/*.o(.text*);
         asm/*.o(.text*);
+        test/*.o(.text*);
     } > ROM =0
 
     script_data :
@@ -81,6 +99,7 @@ SECTIONS {
     {
         src/*.o(.rodata*);
         data/*.o(.rodata*);
+        test/*.o(.rodata*);
     } > ROM =0
 
     song_data :
@@ -126,23 +145,13 @@ SECTIONS {
         src/graphics.o(.rodata);
     } > ROM =0
 
-    /* DWARF debug sections.
-       Symbols in the DWARF debugging sections are relative to the beginning
-       of the section so we begin them at 0.  */
-
-    /* DWARF 1 */
+    /* DWARF debug sections. */
     .debug          0 : { *(.debug) }
     .line           0 : { *(.line) }
-
-    /* GNU DWARF 1 extensions */
     .debug_srcinfo  0 : { *(.debug_srcinfo) }
     .debug_sfnames  0 : { *(.debug_sfnames) }
-
-    /* DWARF 1.1 and DWARF 2 */
     .debug_aranges  0 : { *(.debug_aranges) }
     .debug_pubnames 0 : { *(.debug_pubnames) }
-
-    /* DWARF 2 */
     .debug_info     0 : { *(.debug_info .gnu.linkonce.wi.*) }
     .debug_abbrev   0 : { *(.debug_abbrev) }
     .debug_line     0 : { *(.debug_line) }
@@ -150,11 +159,8 @@ SECTIONS {
     .debug_str      0 : { *(.debug_str) }
     .debug_loc      0 : { *(.debug_loc) }
     .debug_macinfo  0 : { *(.debug_macinfo) }
-
-    /* DWARF 5*/
     .debug_line_str     0 : { *(.debug_line_str) }
 
-    /* Discard everything not specifically mentioned above. */
     /DISCARD/ :
     {
         *(*);

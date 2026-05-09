@@ -25,6 +25,12 @@
 #include "trainer_hill.h"
 #include "constants/rgb.h"
 
+// Resolved by the linker script: the initial CB2 invoked when boot
+// completes. ld_script_modern.ld assigns it to CB2_InitCopyrightScreenAfterBootup;
+// ld_script_test.ld overrides it to CB2_TestRunner so test ROMs skip the
+// title screen and run their harness directly. (Backport hook.)
+extern void gInitialMainCB2(void);
+
 static void VBlankIntr(void);
 static void HBlankIntr(void);
 static void VCountIntr(void);
@@ -180,7 +186,7 @@ static void InitMainCallbacks(void)
     gTrainerHillVBlankCounter = NULL;
     gMain.vblankCounter2 = 0;
     gMain.callback1 = NULL;
-    SetMainCallback2(CB2_InitCopyrightScreenAfterBootup);
+    SetMainCallback2(gInitialMainCB2);
     gSaveBlock2Ptr = &gSaveblock2.block;
     gPokemonStoragePtr = &gPokemonStorage.block;
 }
