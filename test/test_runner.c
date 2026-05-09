@@ -25,6 +25,8 @@
 
 #include "global.h"
 #include "gba/isagbprint.h"  /* provides MGBA_LOG_INFO */
+#include "random.h"
+#include "constants/battle_frontier_mons.h"  /* NUM_FRONTIER_MONS, FRONTIER_MONS_HIGH_TIER */
 
 #define REG_DEBUG_ENABLE  (*(volatile u16 *) 0x4FFF780)
 #define REG_DEBUG_FLAGS   (*(volatile u16 *) 0x4FFF700)
@@ -44,6 +46,48 @@ static void MgbaPuts_(const char *s)
         REG_DEBUG_STRING[i] = s[i];
         i++;
     }
+    REG_DEBUG_STRING[i] = '\0';
+    REG_DEBUG_FLAGS = MGBA_LOG_INFO | 0x100;
+}
+
+/* Append a decimal integer to REG_DEBUG_STRING starting at offset `i`,
+ * returning the new offset. Helper for the printf-lite below. */
+static s32 MgbaPutInt_(s32 i, u32 value)
+{
+    char buf[12];
+    s32 j = 0;
+    if (value == 0)
+    {
+        buf[j++] = '0';
+    }
+    else
+    {
+        while (value > 0 && j < (s32)sizeof(buf))
+        {
+            buf[j++] = '0' + (value % 10);
+            value /= 10;
+        }
+    }
+    /* buf has digits in reverse order; flip into the debug-string buffer */
+    while (j > 0 && i < 255)
+    {
+        REG_DEBUG_STRING[i++] = buf[--j];
+    }
+    return i;
+}
+
+/* Just enough of printf to emit "<label>=<int>". The expansion has a
+ * fuller MgbaVPrintf_ supporting %s/%d/%S; we add it later if needed. */
+static void MgbaPrintLabelInt_(const char *label, u32 value)
+{
+    s32 i = 0;
+    while (label[i] && i < 250)
+    {
+        REG_DEBUG_STRING[i] = label[i];
+        i++;
+    }
+    REG_DEBUG_STRING[i++] = '=';
+    i = MgbaPutInt_(i, value);
     REG_DEBUG_STRING[i] = '\0';
     REG_DEBUG_FLAGS = MGBA_LOG_INFO | 0x100;
 }
@@ -86,6 +130,19 @@ void CB2_TestRunner(void)
     }
 
     MgbaPuts_("ebf-ai test harness: hello from CB2_TestRunner");
+
+    /* Layer 1.6 sanity checks: prove that game-engine code and headers
+     * are linked into the test ROM. If these print the expected
+     * values, we know we can call into the engine for the real
+     * battle-setup work in layer 2. */
+    MgbaPrintLabelInt_("NUM_FRONTIER_MONS", NUM_FRONTIER_MONS);             /* expect 882 */
+    MgbaPrintLabelInt_("FRONTIER_MONS_HIGH_TIER", FRONTIER_MONS_HIGH_TIER); /* expect 849 */
+
+    /* Random() reads gRngValue, advances it, returns the high 16 bits.
+     * We don't seed deterministically here — the value will vary per
+     * run, but the function being callable is the load-bearing fact. */
+    MgbaPrintLabelInt_("Random()", Random());
+
     MgbaPuts_("step 0/N: harness boot OK");
     MgbaPuts_("PASS");  /* sentinel string — the Python harness greps for this */
     MgbaPuts_("DONE");  /* end-of-test sentinel */
