@@ -185,6 +185,35 @@ static void OpponentBufferRunCommand(void)
             sOpponentBufferCommands[gBattleBufferA[gActiveBattler][0]]();
         else
             OpponentBufferExecCompleted();
+#if TESTING
+        /*
+         * Phase 1.3 layer 2c Option B convergence: force the opponent
+         * command to complete synchronously *within this dispatcher call*.
+         *
+         * Most opponent handlers either complete inline
+         * (OpponentBufferExecCompleted clears the bit) or set the
+         * controller func to a wait callback (CompleteOnXxxx) and rely on
+         * subsequent frames to tick visual state forward. In the headless
+         * test build no visual state ticks — so those wait callbacks
+         * never complete and the engine stalls.
+         *
+         * Force-completing here, AFTER the command handler ran, says
+         * "treat all multi-frame commands as single-frame." This sits
+         * naturally inside the dispatcher (no inter-frame race surface)
+         * unlike the earlier S6 force-clear in BattleMainCB1, which was
+         * the racy stub that caused the gBattleBufferB[1] = 29 stomp.
+         *
+         * Why this is safe: the opponent (AI) controller emits real
+         * action choices via BtlController_EmitTwoReturnValues BEFORE
+         * setting the wait callback. The wait callback only governs the
+         * visual cadence, not the choice itself. Skipping the wait does
+         * not change which action the opponent took.
+         *
+         * Recorded in docs/12_test-rom-stubs.md § S6'.
+         */
+        if (gBattleControllerExecFlags & gBitTable[gActiveBattler])
+            OpponentBufferExecCompleted();
+#endif
     }
 }
 

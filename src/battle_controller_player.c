@@ -226,6 +226,25 @@ static void PlayerBufferRunCommand(void)
             sPlayerBufferCommands[gBattleBufferA[gActiveBattler][0]]();
         else
             PlayerBufferExecCompleted();
+#if TESTING
+        /*
+         * Phase 1.3 layer 2c Option B convergence: synchronous
+         * completion for visual command handlers that would otherwise
+         * set a per-frame CompleteOnXxxx wait callback.
+         *
+         * The decision handlers from Layer 2b (HandleInputChooseAction,
+         * HandleInputChooseMove, PlayerHandleChoosePokemon under TESTING)
+         * already call PlayerBufferExecCompleted inline, so the bit is
+         * already clear after they return. This force-complete only
+         * fires for visual handlers (move animations, print-string,
+         * sprite slides, etc.) that don't complete on their own.
+         *
+         * Sister stub to the OpponentBufferRunCommand force-complete.
+         * See docs/12_test-rom-stubs.md § S6'.
+         */
+        if (gBattleControllerExecFlags & gBitTable[gActiveBattler])
+            PlayerBufferExecCompleted();
+#endif
     }
 }
 

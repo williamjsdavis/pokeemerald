@@ -166,14 +166,23 @@ static void CB2_TestRunnerEndOfBattle(void)
  * inert for our pool. `abilityNum` 0 selects the species's primary
  * ability.
  */
+/*
+ * Higher-tier rentals so neither side OHKOs the other on turn 1 (the
+ * low-index Caterpie/Weedle pool used for spike-2 was OHKO'd by its
+ * own Tackle, generating a turn-1 forced switch that exercised every
+ * graphics-bound code path we needed to stub). With these indices,
+ * the battle should run multiple turns before the first faint.
+ */
 static const struct RentalMon sFirstLightRentals[6] =
 {
-    { .monId = 0, .ivs = 0, .personality = 0x12345678, .abilityNum = 0 },
-    { .monId = 1, .ivs = 0, .personality = 0x12345679, .abilityNum = 0 },
-    { .monId = 2, .ivs = 0, .personality = 0x1234567A, .abilityNum = 0 },
-    { .monId = 3, .ivs = 0, .personality = 0x1234567B, .abilityNum = 0 },
-    { .monId = 4, .ivs = 0, .personality = 0x1234567C, .abilityNum = 0 },
-    { .monId = 5, .ivs = 0, .personality = 0x1234567D, .abilityNum = 0 },
+    /* Player */
+    { .monId = 700, .ivs = 0, .personality = 0x12345678, .abilityNum = 0 }, /* ALTARIA */
+    { .monId = 730, .ivs = 0, .personality = 0x12345679, .abilityNum = 0 }, /* VAPOREON */
+    { .monId = 800, .ivs = 0, .personality = 0x1234567A, .abilityNum = 0 }, /* GENGAR */
+    /* Opponent */
+    { .monId = 701, .ivs = 0, .personality = 0x1234567B, .abilityNum = 0 },
+    { .monId = 731, .ivs = 0, .personality = 0x1234567C, .abilityNum = 0 },
+    { .monId = 801, .ivs = 0, .personality = 0x1234567D, .abilityNum = 0 },
 };
 
 static void SetupFirstLightBattle_(void)

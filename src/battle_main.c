@@ -960,16 +960,20 @@ static void CB2_HandleStartBattle(void)
     u8 enemyMultiplayerId;
 
 #if TESTING
-    /* Phase 1.3 layer 2c diagnostic: print the state-machine value
-     * every frame. The hang state will manifest as the same value
-     * repeating in the log; transitions show as adjacent runs of
-     * different values. (We deliberately don't track sLastState here —
-     * the test linker discards .data initializers in this file, and
-     * BSS-init + flag dance isn't worth the noise budget right now.)
-     * To be removed once the Layer 2 first-light battle completes.
-     * Recorded in `docs/11_phase-1.3-roadmap.md` § "Step 2c attempt 1". */
-    Mgba_LogLabelInt("CB2_HandleStartBattle_state",
-                     gBattleCommunication[MULTIUSE_STATE]);
+    /* Always-on lightweight probe: print state on transitions.
+     * sInited tracks whether sLastState is meaningful — BSS zero
+     * by default (no .data initializer to upset the test linker). */
+    {
+        static u8 sLastState;
+        static u8 sInited;
+        if (!sInited || gBattleCommunication[MULTIUSE_STATE] != sLastState)
+        {
+            Mgba_LogLabelInt("CB2_handleStart_state",
+                             gBattleCommunication[MULTIUSE_STATE]);
+            sLastState = gBattleCommunication[MULTIUSE_STATE];
+            sInited = 1;
+        }
+    }
 #endif
 
     RunTasks();
@@ -3043,15 +3047,29 @@ void BeginBattleIntro(void)
 static void BattleMainCB1(void)
 {
 #if TESTING
-    /* Phase 1.3 layer 2c diagnostic: print outcome, current battle-
-     * main-func, exec flags, and the player controller's current
-     * function + buffer-A command every ~64 frames. */
+    /* Always-on lightweight probe: print gBattleMainFunc transitions
+     * and gBattleOutcome on change. */
+    {
+        static u32 sLastFunc;
+        static u8 sLastOutcome;
+        static u8 sInited;
+        if (!sInited
+            || (u32) gBattleMainFunc != sLastFunc
+            || gBattleOutcome != sLastOutcome)
+        {
+            Mgba_LogLabelInt("CB1_func", (u32) gBattleMainFunc);
+            Mgba_LogLabelInt("CB1_outcome", gBattleOutcome);
+            Mgba_LogLabelInt("CB1_exec", gBattleControllerExecFlags);
+            sLastFunc = (u32) gBattleMainFunc;
+            sLastOutcome = gBattleOutcome;
+            sInited = 1;
+        }
+    }
+#endif
+#if TESTING && defined(TEST_HARNESS_VERBOSE)
     static u32 sCB1FrameCount;
     if ((sCB1FrameCount++ & 0x3F) == 0)
     {
-        Mgba_LogLabelInt("CB1_outcome", gBattleOutcome);
-        Mgba_LogLabelInt("CB1_func", (u32) gBattleMainFunc);
-        Mgba_LogLabelInt("CB1_ctlExec", gBattleControllerExecFlags);
         Mgba_LogLabelInt("CB1_b0_func", (u32) gBattlerControllerFuncs[0]);
         Mgba_LogLabelInt("CB1_b0_cmd", gBattleBufferA[0][0]);
     }
@@ -3061,38 +3079,12 @@ static void BattleMainCB1(void)
     for (gActiveBattler = 0; gActiveBattler < gBattlersCount; gActiveBattler++)
         gBattlerControllerFuncs[gActiveBattler]();
 
-#if TESTING
-    /*
-     * Phase 1.3 layer 2c stub: clear the *opponent-side* per-controller
-     * exec flags each frame. The opponent controller's visual command
-     * handlers (sprite slides, trainer-pic draws, text typewriter)
-     * don't complete in the headless build because the visual state
-     * machines they wait on never tick. Force-clearing their bits
-     * tells the engine "opponent finished this frame."
-     *
-     * The PLAYER bits are left alone: the player controller has a
-     * legitimate multi-frame state chain (PlayerHandleChooseAction
-     * → HandleChooseActionAfterDma3 → HandleInputChooseAction) that
-     * depends on its bit persisting between frames. The
-     * `HandleInputChooseAction` override from Layer 2b will clear the
-     * bit on its own via PlayerBufferExecCompleted.
-     *
-     * Single-battle assumption: opponent is battler 1 (and battler 3
-     * for doubles, which we don't run). For battler 1, the engine's
-     * IS_BATTLE_CONTROLLER_ACTIVE_OR_PENDING_SYNC_ANYWHERE macro reads
-     * bits at (1) | (1<<4) | (1<<8) | (1<<12) | (0xF<<28), i.e., 4
-     * sync-slot positions per battler plus the global sync nibble.
-     * We clear all of them.
-     */
-    {
-        u32 oppMask = gBitTable[1]                /* current battler bit */
-                    | (gBitTable[1] << 4)          /* sync slot 1 */
-                    | (gBitTable[1] << 8)          /* sync slot 2 */
-                    | (gBitTable[1] << 12)         /* sync slot 3 */
-                    | (0xFu << 28);                /* global sync nibble */
-        gBattleControllerExecFlags &= ~oppMask;
-    }
-#endif
+    /* The Option-A-era opponent-bit force-clear was removed in the
+     * pivot to Option B (2026-05-11). Option B's pump loop in
+     * test_runner.c replaces this whole function, so any flag
+     * manipulation belongs there, not here. The force-clear was the
+     * racy stub (S6 in docs/12_test-rom-stubs.md) that caused the
+     * gBattleBufferB[1] = 29 stomp; not bringing it back. */
 }
 
 static void BattleStartClearSetData(void)
@@ -4195,26 +4187,25 @@ static void HandleTurnActionSelectionState(void)
     s32 i;
 
 #if TESTING
-    static u8 sLastB0, sLastB1, sLastConfCount, sLastChosen1;
-    static u32 sLastExec;
-    if (gBattleCommunication[0] != sLastB0 || gBattleCommunication[1] != sLastB1
-        || gBattleCommunication[ACTIONS_CONFIRMED_COUNT] != sLastConfCount
-        || gBattleControllerExecFlags != sLastExec
-        || gChosenActionByBattler[1] != sLastChosen1)
     {
-        Mgba_LogLabelInt("ta_b0", gBattleCommunication[0]);
-        Mgba_LogLabelInt("ta_b1", gBattleCommunication[1]);
-        Mgba_LogLabelInt("ta_count", gBattleCommunication[ACTIONS_CONFIRMED_COUNT]);
-        Mgba_LogLabelInt("ta_exec", gBattleControllerExecFlags);
-        Mgba_LogLabelInt("ta_chosen1", gChosenActionByBattler[1]);
-        Mgba_LogLabelInt("ta_buf1_1", gBattleBufferB[1][1]);
-        Mgba_LogLabelInt("ta_buf1_2", gBattleBufferB[1][2]);
-        Mgba_LogLabelInt("ta_buf1_3", gBattleBufferB[1][3]);
-        sLastB0 = gBattleCommunication[0];
-        sLastB1 = gBattleCommunication[1];
-        sLastConfCount = gBattleCommunication[ACTIONS_CONFIRMED_COUNT];
-        sLastExec = gBattleControllerExecFlags;
-        sLastChosen1 = gChosenActionByBattler[1];
+        static u8 sLastB0, sLastB1, sLastChosen0, sLastChosen1, sInited;
+        if (!sInited
+            || gBattleCommunication[0] != sLastB0
+            || gBattleCommunication[1] != sLastB1
+            || gChosenActionByBattler[0] != sLastChosen0
+            || gChosenActionByBattler[1] != sLastChosen1)
+        {
+            Mgba_LogLabelInt("ta_b0", gBattleCommunication[0]);
+            Mgba_LogLabelInt("ta_b1", gBattleCommunication[1]);
+            Mgba_LogLabelInt("ta_chosen0", gChosenActionByBattler[0]);
+            Mgba_LogLabelInt("ta_chosen1", gChosenActionByBattler[1]);
+            Mgba_LogLabelInt("ta_bufB1_1", gBattleBufferB[1][1]);
+            sLastB0 = gBattleCommunication[0];
+            sLastB1 = gBattleCommunication[1];
+            sLastChosen0 = gChosenActionByBattler[0];
+            sLastChosen1 = gChosenActionByBattler[1];
+            sInited = 1;
+        }
     }
 #endif
 
@@ -5338,11 +5329,7 @@ static void ReturnFromBattleToOverworld(void)
 
 void RunBattleScriptCommands_PopCallbacksStack(void)
 {
-#if TESTING
-    /* Phase 1.3 layer 2c diagnostic: print the current script opcode
-     * every ~64 entries. The hang manifests as the same opcode value
-     * repeating; the symbol-lookup against gBattleScriptingCommandsTable
-     * tells us which `Cmd_*` is stalling. */
+#if TESTING && defined(TEST_HARNESS_VERBOSE)
     static u32 sScriptCallCount;
     if ((sScriptCallCount++ & 0x3F) == 0)
     {
