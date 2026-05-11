@@ -25,8 +25,18 @@
 
 #include "global.h"
 #include "gba/isagbprint.h"  /* provides MGBA_LOG_INFO */
+#include "main.h"            /* SetMainCallback2, gMain */
 #include "random.h"
+#include "battle.h"          /* gBattleTypeFlags, gBattleOutcome, BATTLE_TYPE_* */
+#include "battle_main.h"     /* CB2_InitBattle */
+#include "battle_setup.h"    /* gTrainerBattleOpponent_A */
+#include "battle_factory.h"  /* CallBattleFactoryFunction */
+#include "event_data.h"      /* gSpecialVar_0x8004 / _0x8005 */
+#include "constants/battle.h"            /* B_OUTCOME_* */
+#include "constants/battle_factory.h"    /* BATTLE_FACTORY_FUNC_SET_PARTIES */
+#include "constants/battle_frontier.h"   /* FRONTIER_MAX_LEVEL_50 etc. */
 #include "constants/battle_frontier_mons.h"  /* NUM_FRONTIER_MONS, FRONTIER_MONS_HIGH_TIER */
+#include "constants/trainers.h"          /* opponent trainer ids */
 
 #define REG_DEBUG_ENABLE  (*(volatile u16 *) 0x4FFF780)
 #define REG_DEBUG_FLAGS   (*(volatile u16 *) 0x4FFF700)
@@ -113,13 +123,110 @@ static void MgbaExit_(u8 exitCode)
 }
 
 /*
- * CB2_TestRunner is the entry point selected by ld_script_test.ld
- * (it overrides gInitialMainCB2). It runs once per VBlank-cycle but we
- * don't actually need to wait for vblank — we set up, print, exit.
+ * Layer 2 end-of-battle hook. Installed as `gMain.savedCallback` so
+ * the engine's battle teardown will jump to us after `gBattleOutcome`
+ * is set and cleanup completes. See `battle_main.c:5248` —
+ * `FreeResetData_ReturnToOvOrDoEvolutions` calls
+ * `SetMainCallback2(gMain.savedCallback)` at end-of-battle.
  *
- * Exit codes:
- *   0 = test pass
- *   1 = mGBA debug interface unavailable (likely running on real hardware)
+ * NOTE on watchdog: initially we tried a `gMain.callback1` watchdog
+ * polling `gBattleOutcome` each frame. It got clobbered: the engine
+ * overwrites `gMain.callback1 = BattleMainCB1` during battle init (line
+ * 1140 and a few other spots). The savedCallback path is the standard
+ * mechanism the cartridge uses to return to the overworld; it's safe
+ * for the engine to assume we don't repurpose `callback1`.
+ *
+ * Hang detection: if the battle init itself hangs (e.g., a missing
+ * graphics path), savedCallback never fires. We rely on mgba-rom-test's
+ * timeout-Millis as the ultimate backstop in that case, and on the
+ * trail of `MgbaPuts_` sentinels above the hand-off point in
+ * `CB2_TestRunner` to know how far we got.
+ */
+static void CB2_TestRunnerEndOfBattle(void)
+{
+    MgbaPrintLabelInt_("BATTLE_OUTCOME", gBattleOutcome);
+    MgbaPuts_("PASS");
+    MgbaPuts_("DONE");
+    MgbaExit_(0);
+}
+
+/*
+ * Hard-coded matchup for first-light. Picks rental indices from the
+ * pool such that the player side has higher-tier sets than the
+ * opponent. Once Layer 3 lands, these become inputs patched in via
+ * `patchelf` before each run.
+ *
+ * Indices 0..2 → player party, 3..5 → opponent party. The actual
+ * species/moveset behind each index lives in `gBattleFrontierMons[]`
+ * in `engine/pokeemerald/src/data/battle_frontier/battle_frontier_mons.h`.
+ *
+ * IV byte is the "stat emphasis" field that the Battle Factory uses to
+ * pick which IV-tier table the mon draws from; 0 = baseline. The
+ * personality field affects gendered species and some moves but is
+ * inert for our pool. `abilityNum` 0 selects the species's primary
+ * ability.
+ */
+static const struct RentalMon sFirstLightRentals[6] =
+{
+    { .monId = 0, .ivs = 0, .personality = 0x12345678, .abilityNum = 0 },
+    { .monId = 1, .ivs = 0, .personality = 0x12345679, .abilityNum = 0 },
+    { .monId = 2, .ivs = 0, .personality = 0x1234567A, .abilityNum = 0 },
+    { .monId = 3, .ivs = 0, .personality = 0x1234567B, .abilityNum = 0 },
+    { .monId = 4, .ivs = 0, .personality = 0x1234567C, .abilityNum = 0 },
+    { .monId = 5, .ivs = 0, .personality = 0x1234567D, .abilityNum = 0 },
+};
+
+static void SetupFirstLightBattle_(void)
+{
+    s32 i;
+
+    /* RNG: seed deterministically so the same test ROM produces the
+     * same battle outcome each run (modulo any non-determinism we
+     * haven't tracked down yet). */
+    SeedRng(0x1234);
+    SeedRng2(0x5678);
+
+    /* Battle Factory facility state. Most fields default-zero is OK;
+     * we set only what `SetPlayerAndOpponentParties` actually reads. */
+    gSaveBlock2Ptr->frontier.lvlMode = FRONTIER_LVL_50;
+    gSaveBlock2Ptr->frontier.curChallengeBattleNum = 0;
+
+    for (i = 0; i < 6; i++)
+        gSaveBlock2Ptr->frontier.rentalMons[i] = sFirstLightRentals[i];
+
+    /* Build the two parties from the rental array. This is the
+     * standard cartridge entry point — populates `gPlayerParty` and
+     * `gEnemyParty` with full Pokémon structs (stats, moves, items). */
+    gSpecialVar_0x8004 = BATTLE_FACTORY_FUNC_SET_PARTIES;
+    gSpecialVar_0x8005 = 0;  /* 0 = build both parties */
+    CallBattleFactoryFunction();
+
+    /* Battle-type flags: trainer battle, Battle Frontier, Battle Tower
+     * sub-flag (Battle Factory rides on the Tower battle setup). */
+    gBattleTypeFlags = BATTLE_TYPE_TRAINER | BATTLE_TYPE_FRONTIER | BATTLE_TYPE_BATTLE_TOWER;
+
+    /* Trainer ID for the opponent. We pick an arbitrary frontier
+     * trainer here; Layer 3 will parametrise this. */
+    gTrainerBattleOpponent_A = 0;
+}
+
+/*
+ * CB2_TestRunner is the entry point selected by ld_script_test.ld
+ * (it overrides gInitialMainCB2). It is called once per main-loop
+ * iteration as long as `gMain.callback2` points at it. Our pattern:
+ *
+ *   - First (and only) invocation: print sanity sentinels, set up a
+ *     Battle Factory matchup, install `CB1_BattleWatchdog` as the
+ *     per-frame poll, switch `gMain.callback2` to `CB2_InitBattle`,
+ *     and return. The engine then drives the battle frame by frame.
+ *   - The watchdog (`CB1`) exits via `MgbaExit_` once `gBattleOutcome`
+ *     is set, so this function is never re-entered.
+ *
+ * Exit codes (set by `MgbaExit_` via SWI 0x3):
+ *   0 = battle completed; outcome printed.
+ *   1 = mGBA debug interface unavailable (likely running on real HW).
+ *   2 = battle didn't complete within `BATTLE_MAX_FRAMES` — watchdog
+ *       timeout. Suggests an engine hang or an unexpected code path.
  */
 void CB2_TestRunner(void)
 {
@@ -132,19 +239,23 @@ void CB2_TestRunner(void)
     MgbaPuts_("ebf-ai test harness: hello from CB2_TestRunner");
 
     /* Layer 1.6 sanity checks: prove that game-engine code and headers
-     * are linked into the test ROM. If these print the expected
-     * values, we know we can call into the engine for the real
-     * battle-setup work in layer 2. */
+     * are linked into the test ROM. */
     MgbaPrintLabelInt_("NUM_FRONTIER_MONS", NUM_FRONTIER_MONS);             /* expect 882 */
     MgbaPrintLabelInt_("FRONTIER_MONS_HIGH_TIER", FRONTIER_MONS_HIGH_TIER); /* expect 849 */
-
-    /* Random() reads gRngValue, advances it, returns the high 16 bits.
-     * We don't seed deterministically here — the value will vary per
-     * run, but the function being callable is the load-bearing fact. */
     MgbaPrintLabelInt_("Random()", Random());
 
     MgbaPuts_("step 0/N: harness boot OK");
-    MgbaPuts_("PASS");  /* sentinel string — the Python harness greps for this */
-    MgbaPuts_("DONE");  /* end-of-test sentinel */
-    MgbaExit_(0);
+
+    /* Layer 2 (Option A): set up a Battle Factory matchup and hand off
+     * to the engine. The watchdog handles exit when the battle ends. */
+    MgbaPuts_("layer2: setting up Battle Factory matchup");
+    SetupFirstLightBattle_();
+
+    MgbaPuts_("layer2: handing off to CB2_InitBattle");
+    /* When the battle's teardown completes (FreeResetData_Return…) it
+     * jumps to gMain.savedCallback. Hooking that gives us a clean way
+     * to read gBattleOutcome and exit. */
+    gMain.savedCallback = CB2_TestRunnerEndOfBattle;
+    SetMainCallback2(CB2_InitBattle);
+    /* Returns to the main loop; next iteration calls CB2_InitBattle. */
 }
