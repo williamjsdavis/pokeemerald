@@ -3063,21 +3063,35 @@ static void BattleMainCB1(void)
 
 #if TESTING
     /*
-     * Phase 1.3 layer 2c stub: force-clear the per-controller exec
-     * flags each frame. Many intro phases (and some mid-battle waits)
-     * early-return while `gBattleControllerExecFlags != 0`, blocking on
-     * visual commands the headless build can't complete (sprite
-     * animations, text typewriter, palette fades). Clearing here says
-     * "all controllers finished this frame." The cost: any legitimate
-     * multi-frame command becomes single-frame, which is fine for the
-     * tests we want to run.
+     * Phase 1.3 layer 2c stub: clear the *opponent-side* per-controller
+     * exec flags each frame. The opponent controller's visual command
+     * handlers (sprite slides, trainer-pic draws, text typewriter)
+     * don't complete in the headless build because the visual state
+     * machines they wait on never tick. Force-clearing their bits
+     * tells the engine "opponent finished this frame."
      *
-     * If a downstream battle command actually needs multi-frame
-     * state (e.g., AI thinking that consumes battle frames), revisit
-     * this — but in the cartridge AI's case those run synchronously
-     * within the controller function call, not across frames.
+     * The PLAYER bits are left alone: the player controller has a
+     * legitimate multi-frame state chain (PlayerHandleChooseAction
+     * → HandleChooseActionAfterDma3 → HandleInputChooseAction) that
+     * depends on its bit persisting between frames. The
+     * `HandleInputChooseAction` override from Layer 2b will clear the
+     * bit on its own via PlayerBufferExecCompleted.
+     *
+     * Single-battle assumption: opponent is battler 1 (and battler 3
+     * for doubles, which we don't run). For battler 1, the engine's
+     * IS_BATTLE_CONTROLLER_ACTIVE_OR_PENDING_SYNC_ANYWHERE macro reads
+     * bits at (1) | (1<<4) | (1<<8) | (1<<12) | (0xF<<28), i.e., 4
+     * sync-slot positions per battler plus the global sync nibble.
+     * We clear all of them.
      */
-    gBattleControllerExecFlags = 0;
+    {
+        u32 oppMask = gBitTable[1]                /* current battler bit */
+                    | (gBitTable[1] << 4)          /* sync slot 1 */
+                    | (gBitTable[1] << 8)          /* sync slot 2 */
+                    | (gBitTable[1] << 12)         /* sync slot 3 */
+                    | (0xFu << 28);                /* global sync nibble */
+        gBattleControllerExecFlags &= ~oppMask;
+    }
 #endif
 }
 
@@ -4179,6 +4193,20 @@ enum
 static void HandleTurnActionSelectionState(void)
 {
     s32 i;
+
+#if TESTING
+    /* Phase 1.3 layer 2c diagnostic: print per-battler sub-state every
+     * ~64 entries so we can see where the action-selection loop is
+     * waiting. gBattleCommunication[battler] holds the sub-state for
+     * each battler (STATE_BEFORE_ACTION_CHOSEN, STATE_WAIT_ACTION_CHOSEN,
+     * STATE_WAIT_ACTION_CONFIRMED_STANDBY, ...). */
+    static u32 sTurnActionCallCount;
+    if ((sTurnActionCallCount++ & 0x3F) == 0)
+    {
+        Mgba_LogLabelInt("turnAction_b0_state", gBattleCommunication[0]);
+        Mgba_LogLabelInt("turnAction_b1_state", gBattleCommunication[1]);
+    }
+#endif
 
     gBattleCommunication[ACTIONS_CONFIRMED_COUNT] = 0;
     for (gActiveBattler = 0; gActiveBattler < gBattlersCount; gActiveBattler++)
