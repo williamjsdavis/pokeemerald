@@ -36,6 +36,10 @@
 #include "constants/trainers.h"
 #include "constants/rgb.h"
 
+#if TESTING
+#include "test/test_player_input.h"  /* gTestPlayerInput, TestPlayerInput_Peek / Advance */
+#endif
+
 static void PlayerHandleGetMonData(void);
 static void PlayerHandleSetMonData(void);
 static void PlayerHandleSetRawMonData(void);
@@ -232,6 +236,24 @@ static void CompleteOnBankSpritePosX_0(void)
 
 static void HandleInputChooseAction(void)
 {
+#if TESTING
+    /*
+     * Headless test mode: skip the keypad poll entirely and emit the
+     * scripted action kind from gTestPlayerInput. We `_Peek` (not
+     * `_Advance`) here because HandleInputChooseMove for the same
+     * logical turn needs to read the same entry's move_index. The
+     * cursor advances in the move-select override below.
+     *
+     * Item / Run / Switch are not modelled by this scaffold yet — only
+     * B_ACTION_USE_MOVE is exercised by Layer 2. Anything else in the
+     * input block reaches the engine unchecked and will fail later
+     * paths (ChoosePokemon, ChooseItem) that we haven't overridden.
+     */
+    const struct TestPlayerInputTurn *turn = TestPlayerInput_Peek();
+    BtlController_EmitTwoReturnValues(B_COMM_TO_ENGINE, turn->kind, 0);
+    PlayerBufferExecCompleted();
+    return;
+#else
     u16 itemId = gBattleBufferA[gActiveBattler][2] | (gBattleBufferA[gActiveBattler][3] << 8);
 
     DoBounceEffect(gActiveBattler, BOUNCE_HEALTHBOX, 7, 1);
@@ -327,6 +349,7 @@ static void HandleInputChooseAction(void)
     {
         SwapHpBarsWithHpText();
     }
+#endif /* !TESTING — closes the #if TESTING / #else block at top of function */
 }
 
 static void UNUSED UnusedEndBounceEffect(void)
@@ -470,6 +493,47 @@ static void HandleInputChooseTarget(void)
 
 static void HandleInputChooseMove(void)
 {
+#if TESTING
+    /*
+     * Headless test mode: skip the keypad poll and emit the scripted
+     * move from gTestPlayerInput. Computes the target the same way the
+     * keypad path does (lifted from the A_BUTTON branch below) so that
+     * MOVE_TARGET_USER moves (Curse-on-non-Ghost, etc.) hit the right
+     * battler. Single-battle only — double battles need an additional
+     * target-select step that we don't model.
+     *
+     * The cursor advances *after* the emit, so the next logical turn's
+     * HandleInputChooseAction reads the next entry.
+     */
+    const struct TestPlayerInputTurn *turn = TestPlayerInput_Peek();
+    struct ChooseMoveStruct *moveInfo = (struct ChooseMoveStruct *)(&gBattleBufferA[gActiveBattler][4]);
+    u8 moveIndex = turn->move_index;
+    u8 moveTarget;
+    u8 multiUseCursor;
+
+    if (moveInfo->moves[moveIndex] == MOVE_CURSE)
+    {
+        if (moveInfo->monTypes[0] != TYPE_GHOST && moveInfo->monTypes[1] != TYPE_GHOST)
+            moveTarget = MOVE_TARGET_USER;
+        else
+            moveTarget = MOVE_TARGET_SELECTED;
+    }
+    else
+    {
+        moveTarget = gBattleMoves[moveInfo->moves[moveIndex]].target;
+    }
+
+    if (moveTarget & MOVE_TARGET_USER)
+        multiUseCursor = gActiveBattler;
+    else
+        multiUseCursor = GetBattlerAtPosition(BATTLE_OPPOSITE(GET_BATTLER_SIDE(gActiveBattler)));
+
+    BtlController_EmitTwoReturnValues(B_COMM_TO_ENGINE, B_ACTION_EXEC_SCRIPT,
+                                      moveIndex | (multiUseCursor << 8));
+    PlayerBufferExecCompleted();
+    TestPlayerInput_Advance();
+    return;
+#else
     bool32 canSelectTarget = FALSE;
     struct ChooseMoveStruct *moveInfo = (struct ChooseMoveStruct *)(&gBattleBufferA[gActiveBattler][4]);
 
@@ -612,6 +676,7 @@ static void HandleInputChooseMove(void)
             gBattlerControllerFuncs[gActiveBattler] = HandleMoveSwitching;
         }
     }
+#endif /* !TESTING — closes the #if TESTING / #else block at top of function */
 }
 
 static u32 UNUSED HandleMoveInputUnused(void)
