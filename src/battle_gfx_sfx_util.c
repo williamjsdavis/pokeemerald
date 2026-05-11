@@ -830,6 +830,25 @@ void LoadBattleBarGfx(u8 unused)
 
 bool8 BattleInitAllSprites(u8 *state1, u8 *battler)
 {
+#if TESTING
+    /*
+     * Phase 1.3 layer 2c stub: headless test ROM doesn't render sprites
+     * — health boxes, mon sprites, enemy shadow sprites are all visual.
+     * The downstream battle code path uses sprite handles
+     * (`gHealthboxSpriteIds[battler]`, etc.); leaving those at their
+     * default 0 may crash a sprite-update call. Watch for it; if it
+     * does, the fix is to add a single `MAX_SPRITES` sentinel handle
+     * and additional `#if TESTING` early-returns in the sprite-update
+     * paths that don't tolerate `0`.
+     *
+     * Returning TRUE here unblocks `CB2_HandleStartBattle` case 18,
+     * letting the state machine transition to `BattleMainCB2` and
+     * actually run the battle.
+     */
+    (void) state1;
+    (void) battler;
+    return TRUE;
+#else
     bool8 retVal = FALSE;
 
     switch (*state1)
@@ -905,6 +924,7 @@ bool8 BattleInitAllSprites(u8 *state1, u8 *battler)
     }
 
     return retVal;
+#endif
 }
 
 void ClearSpritesHealthboxAnimData(void)

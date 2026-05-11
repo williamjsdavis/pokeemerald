@@ -1,0 +1,92 @@
+#ifndef GUARD_TEST_LOG_H
+#define GUARD_TEST_LOG_H
+
+/*
+ * test/test_log.h
+ *
+ * Header-only printf-lite over the mGBA debug interface. Lives in
+ * `include/test/` because both `test/test_runner.c` and (during the
+ * Layer-2c hybrid instrumentation pass) selected engine files under
+ * `src/` need to emit sentinel strings from the same TEST=1 build.
+ *
+ * Memory-mapped interface, same convention as the expansion:
+ *   REG_DEBUG_ENABLE  = 0x4FFF780  (write 0xC0DE; read 0x1DEA to confirm)
+ *   REG_DEBUG_FLAGS   = 0x4FFF700  (write log-level | 0x100 to flush)
+ *   REG_DEBUG_STRING  = 0x4FFF600  (256-byte buffer)
+ *
+ * All functions are `static inline` so the file is safe to include
+ * from multiple translation units without link-time conflicts.
+ *
+ * Caveats:
+ *   - The flush writes the entire string buffer; concurrent calls from
+ *     interrupt handlers would race. Don't call from a handler.
+ *   - Output is observed only when running under mGBA — on real hardware
+ *     these become harmless writes to BIOS-protected addresses.
+ *   - The helpers are intended for TEST=1 builds. They compile fine in
+ *     non-test builds too (they're inline; the compiler elides them if
+ *     unused), but production code shouldn't depend on the side effect.
+ */
+
+#include "global.h"
+#include "gba/isagbprint.h"  /* MGBA_LOG_INFO */
+
+#define MGBA_LOG_REG_DEBUG_ENABLE   (*(volatile u16 *) 0x4FFF780)
+#define MGBA_LOG_REG_DEBUG_FLAGS    (*(volatile u16 *) 0x4FFF700)
+#define MGBA_LOG_REG_DEBUG_STRING   ((char *) 0x4FFF600)
+
+static inline bool32 Mgba_LogOpen(void)
+{
+    MGBA_LOG_REG_DEBUG_ENABLE = 0xC0DE;
+    return MGBA_LOG_REG_DEBUG_ENABLE == 0x1DEA;
+}
+
+static inline void Mgba_LogPuts(const char *s)
+{
+    s32 i = 0;
+    while (s[i] && i < 255)
+    {
+        MGBA_LOG_REG_DEBUG_STRING[i] = s[i];
+        i++;
+    }
+    MGBA_LOG_REG_DEBUG_STRING[i] = '\0';
+    MGBA_LOG_REG_DEBUG_FLAGS = MGBA_LOG_INFO | 0x100;
+}
+
+static inline s32 Mgba_LogPutIntAt_(s32 i, u32 value)
+{
+    char buf[12];
+    s32 j = 0;
+    if (value == 0)
+    {
+        buf[j++] = '0';
+    }
+    else
+    {
+        while (value > 0 && j < (s32) sizeof(buf))
+        {
+            buf[j++] = '0' + (value % 10);
+            value /= 10;
+        }
+    }
+    while (j > 0 && i < 255)
+    {
+        MGBA_LOG_REG_DEBUG_STRING[i++] = buf[--j];
+    }
+    return i;
+}
+
+static inline void Mgba_LogLabelInt(const char *label, u32 value)
+{
+    s32 i = 0;
+    while (label[i] && i < 250)
+    {
+        MGBA_LOG_REG_DEBUG_STRING[i] = label[i];
+        i++;
+    }
+    MGBA_LOG_REG_DEBUG_STRING[i++] = '=';
+    i = Mgba_LogPutIntAt_(i, value);
+    MGBA_LOG_REG_DEBUG_STRING[i] = '\0';
+    MGBA_LOG_REG_DEBUG_FLAGS = MGBA_LOG_INFO | 0x100;
+}
+
+#endif /* GUARD_TEST_LOG_H */

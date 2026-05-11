@@ -67,13 +67,30 @@ struct TestPlayerInput
 extern struct TestPlayerInput gTestPlayerInput;
 
 /*
- * Read-and-advance the next scripted action. Returns a pointer to the
- * entry the controller should use. If the buffer is exhausted, returns
- * a static fallback (`B_ACTION_USE_MOVE`, move_index 0) so the battle
- * still progresses.
+ * Peek the next scripted action without consuming it. Returns a pointer
+ * to the entry the controller should use. If the buffer is exhausted,
+ * returns a static fallback (`B_ACTION_USE_MOVE`, move_index 0) so the
+ * battle still progresses.
+ *
+ * Why peek-without-advance: in one logical battle turn the player
+ * controller is called for both `HandleInputChooseAction` (pick action
+ * kind) and `HandleInputChooseMove` (pick which move). Both need to see
+ * the same input entry. We advance the cursor only after the final
+ * decision in a turn (in the choose-move / choose-switch override),
+ * so re-entering `HandleInputChooseAction` for the same turn (e.g.
+ * after a B-button cancel from move-select) re-reads the same entry.
  *
  * Caller must only invoke under `#if TESTING`.
  */
-const struct TestPlayerInputTurn *TestPlayerInput_Next(void);
+const struct TestPlayerInputTurn *TestPlayerInput_Peek(void);
+
+/*
+ * Advance the cursor by one entry. Called at the *end* of a logical
+ * turn (after EmitTwoReturnValues + PlayerBufferExecCompleted in the
+ * move/switch override) so the next turn reads the next entry.
+ *
+ * Caller must only invoke under `#if TESTING`.
+ */
+void TestPlayerInput_Advance(void);
 
 #endif /* GUARD_TEST_PLAYER_INPUT_H */

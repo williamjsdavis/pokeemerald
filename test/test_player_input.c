@@ -47,7 +47,7 @@ static const struct TestPlayerInputTurn sFallbackTurn =
     ._pad = 0,
 };
 
-const struct TestPlayerInputTurn *TestPlayerInput_Next(void)
+const struct TestPlayerInputTurn *TestPlayerInput_Peek(void)
 {
     /* Defensive: if the schema version stamped in the struct doesn't
      * match what we were compiled with, something patchelf-wrote into
@@ -60,5 +60,17 @@ const struct TestPlayerInputTurn *TestPlayerInput_Next(void)
         || gTestPlayerInput.cursor >= TEST_PLAYER_INPUT_MAX_TURNS)
         return &sFallbackTurn;
 
-    return &gTestPlayerInput.turns[gTestPlayerInput.cursor++];
+    return &gTestPlayerInput.turns[gTestPlayerInput.cursor];
+}
+
+void TestPlayerInput_Advance(void)
+{
+    /* No-op if the schema mismatched or we've already exhausted the
+     * buffer — Peek would return the fallback anyway and we don't want
+     * to advance past the buffer end. */
+    if (gTestPlayerInput.schema_version != TEST_PLAYER_INPUT_SCHEMA_VERSION)
+        return;
+    if (gTestPlayerInput.cursor >= TEST_PLAYER_INPUT_MAX_TURNS)
+        return;
+    gTestPlayerInput.cursor++;
 }

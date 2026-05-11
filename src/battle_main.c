@@ -61,6 +61,10 @@
 #include "constants/trainers.h"
 #include "cable_club.h"
 
+#if TESTING
+#include "test/test_log.h"  /* Phase 1.3 layer 2c diagnostic instrumentation */
+#endif
+
 extern const struct BgTemplate gBattleBgTemplates[];
 extern const struct WindowTemplate *const gBattleWindowTemplates[];
 
@@ -954,6 +958,19 @@ static void CB2_HandleStartBattle(void)
 {
     u8 playerMultiplayerId;
     u8 enemyMultiplayerId;
+
+#if TESTING
+    /* Phase 1.3 layer 2c diagnostic: print the state-machine value
+     * every frame. The hang state will manifest as the same value
+     * repeating in the log; transitions show as adjacent runs of
+     * different values. (We deliberately don't track sLastState here —
+     * the test linker discards .data initializers in this file, and
+     * BSS-init + flag dance isn't worth the noise budget right now.)
+     * To be removed once the Layer 2 first-light battle completes.
+     * Recorded in `docs/11_phase-1.3-roadmap.md` § "Step 2c attempt 1". */
+    Mgba_LogLabelInt("CB2_HandleStartBattle_state",
+                     gBattleCommunication[MULTIUSE_STATE]);
+#endif
 
     RunTasks();
     AnimateSprites();
@@ -3025,10 +3042,43 @@ void BeginBattleIntro(void)
 
 static void BattleMainCB1(void)
 {
+#if TESTING
+    /* Phase 1.3 layer 2c diagnostic: print outcome, current battle-
+     * main-func, and the controller-exec flag bitfield every ~64
+     * frames. The intro phases early-return while
+     * `gBattleControllerExecFlags != 0`, so a stuck non-zero flag
+     * tells us a controller is hung on a command. */
+    static u32 sCB1FrameCount;
+    if ((sCB1FrameCount++ & 0x3F) == 0)
+    {
+        Mgba_LogLabelInt("CB1_outcome", gBattleOutcome);
+        Mgba_LogLabelInt("CB1_func", (u32) gBattleMainFunc);
+        Mgba_LogLabelInt("CB1_ctlExec", gBattleControllerExecFlags);
+    }
+#endif
     gBattleMainFunc();
 
     for (gActiveBattler = 0; gActiveBattler < gBattlersCount; gActiveBattler++)
         gBattlerControllerFuncs[gActiveBattler]();
+
+#if TESTING
+    /*
+     * Phase 1.3 layer 2c stub: force-clear the per-controller exec
+     * flags each frame. Many intro phases (and some mid-battle waits)
+     * early-return while `gBattleControllerExecFlags != 0`, blocking on
+     * visual commands the headless build can't complete (sprite
+     * animations, text typewriter, palette fades). Clearing here says
+     * "all controllers finished this frame." The cost: any legitimate
+     * multi-frame command becomes single-frame, which is fine for the
+     * tests we want to run.
+     *
+     * If a downstream battle command actually needs multi-frame
+     * state (e.g., AI thinking that consumes battle frames), revisit
+     * this — but in the cartridge AI's case those run synchronously
+     * within the controller function call, not across frames.
+     */
+    gBattleControllerExecFlags = 0;
+#endif
 }
 
 static void BattleStartClearSetData(void)
