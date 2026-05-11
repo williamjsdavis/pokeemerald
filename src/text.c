@@ -346,7 +346,25 @@ void RunTextPrinters(void)
 
 bool16 IsTextPrinterActive(u8 id)
 {
+#if TESTING
+    /*
+     * Phase 1.3 layer 2c stub: in the headless test build there is no
+     * text printer state advancing (no VBlank ticking the typewriter
+     * animation, no `RenderFont` being called). Every caller of this
+     * function uses it as a wait gate: "while text is printing, block."
+     * Returning FALSE unconditionally says "text already finished" and
+     * unblocks `CompleteOnInactiveTextPrinter` plus the many other
+     * battle script waits that gate on it.
+     *
+     * Safe because the text-printer state is read-only from the battle
+     * engine's perspective — it doesn't drive any game logic, only
+     * visual cadence. Skipping it doesn't change battle outcomes.
+     */
+    (void) id;
+    return FALSE;
+#else
     return sTextPrinters[id].active;
+#endif
 }
 
 static u32 RenderFont(struct TextPrinter *textPrinter)

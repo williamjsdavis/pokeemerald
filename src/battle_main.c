@@ -5328,6 +5328,23 @@ static void ReturnFromBattleToOverworld(void)
 
 void RunBattleScriptCommands_PopCallbacksStack(void)
 {
+#if TESTING
+    /* Phase 1.3 layer 2c diagnostic: print the current script opcode
+     * every ~64 entries. The hang manifests as the same opcode value
+     * repeating; the symbol-lookup against gBattleScriptingCommandsTable
+     * tells us which `Cmd_*` is stalling. */
+    static u32 sScriptCallCount;
+    if ((sScriptCallCount++ & 0x3F) == 0)
+    {
+        Mgba_LogLabelInt("script_opcode", gBattlescriptCurrInstr[0]);
+        Mgba_LogLabelInt("script_byte2", gBattlescriptCurrInstr[2]);
+        Mgba_LogLabelInt("script_actionFunc", gCurrentActionFuncId);
+        Mgba_LogLabelInt("ctl_b0_func", (u32) gBattlerControllerFuncs[0]);
+        Mgba_LogLabelInt("ctl_b1_func", (u32) gBattlerControllerFuncs[1]);
+        Mgba_LogLabelInt("bufA_b0_cmd", gBattleBufferA[0][0]);
+        Mgba_LogLabelInt("bufA_b1_cmd", gBattleBufferA[1][0]);
+    }
+#endif
     if (gCurrentActionFuncId == B_ACTION_TRY_FINISH || gCurrentActionFuncId == B_ACTION_FINISHED)
     {
         if (gBattleResources->battleCallbackStack->size != 0)

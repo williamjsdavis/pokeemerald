@@ -38,6 +38,7 @@
 
 #if TESTING
 #include "test/test_player_input.h"  /* gTestPlayerInput, TestPlayerInput_Peek / Advance */
+#include "constants/species.h"        /* SPECIES_NONE */
 #endif
 
 static void PlayerHandleGetMonData(void);
@@ -2733,6 +2734,48 @@ static void PlayerHandleChoosePokemon(void)
 
     for (i = 0; i < (int)ARRAY_COUNT(gBattlePartyCurrentOrder); i++)
         gBattlePartyCurrentOrder[i] = gBattleBufferA[gActiveBattler][4 + i];
+
+#if TESTING
+    /*
+     * Headless test mode: skip the party-menu UI flow entirely. The
+     * production path (lines below this guard) creates a task and
+     * switches the controller to `OpenPartyMenuToChooseMon`, which
+     * fades the palette and opens a graphics-heavy menu. None of that
+     * ticks headlessly. Instead we pick the first alive non-active
+     * party member directly and emit the chosen-mon return value.
+     *
+     * This fires both for post-faint forced switches AND for the
+     * Battle Factory between-battles swap UI. For Layer 2 first-light
+     * we just need *something* to complete the script; smarter
+     * test-driven switch policies will replace this when the agent
+     * is wired up at Layer 4/5.
+     *
+     * The fallback (no alive partner) hands back PARTY_SIZE which the
+     * engine treats as "nothing to switch to"; the battle ends shortly
+     * after via the regular team-out-of-mons code path.
+     */
+    {
+        u8 chosen = PARTY_SIZE;
+        u32 j;
+        u8 activeIdx = gBattlerPartyIndexes[gActiveBattler];
+        for (j = 0; j < PARTY_SIZE; j++)
+        {
+            if (j == activeIdx)
+                continue;
+            if (GetMonData(&gPlayerParty[j], MON_DATA_HP) > 0
+                && GetMonData(&gPlayerParty[j], MON_DATA_SPECIES) != SPECIES_NONE)
+            {
+                chosen = j;
+                break;
+            }
+        }
+        if (chosen == PARTY_SIZE)
+            chosen = activeIdx;  /* nothing alive; let engine handle */
+        BtlController_EmitChosenMonReturnValue(B_COMM_TO_ENGINE, chosen, gBattlePartyCurrentOrder);
+        PlayerBufferExecCompleted();
+        return;
+    }
+#endif
 
     if (gBattleTypeFlags & BATTLE_TYPE_ARENA && (gBattleBufferA[gActiveBattler][1] & 0xF) != PARTY_ACTION_CANT_SWITCH)
     {

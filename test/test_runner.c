@@ -201,9 +201,15 @@ static void SetupFirstLightBattle_(void)
     gSpecialVar_0x8005 = 0;  /* 0 = build both parties */
     CallBattleFactoryFunction();
 
-    /* Battle-type flags: trainer battle, Battle Frontier, Battle Tower
-     * sub-flag (Battle Factory rides on the Tower battle setup). */
-    gBattleTypeFlags = BATTLE_TYPE_TRAINER | BATTLE_TYPE_FRONTIER | BATTLE_TYPE_BATTLE_TOWER;
+    /* Battle-type flags: this is the exact flag combination the
+     * cartridge uses for Battle Factory (see battle_tower.c:2093,
+     * SPECIAL_BATTLE_FACTORY case). BATTLE_TYPE_FRONTIER is a
+     * COMPOSITE mask that includes BATTLE_TYPE_ARENA, BATTLE_TYPE_DOME,
+     * etc. — setting it makes the engine run Arena/Dome subsystems
+     * (e.g., VARIOUS_ARENA_WAIT_STRING) that wait on text printers
+     * that never tick headlessly. The cartridge sets only the
+     * specific facility flag (FACTORY) plus TRAINER. */
+    gBattleTypeFlags = BATTLE_TYPE_TRAINER | BATTLE_TYPE_FACTORY;
 
     /* Trainer ID for the opponent. We pick an arbitrary frontier
      * trainer here; Layer 3 will parametrise this. */
