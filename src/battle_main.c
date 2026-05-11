@@ -3044,16 +3044,16 @@ static void BattleMainCB1(void)
 {
 #if TESTING
     /* Phase 1.3 layer 2c diagnostic: print outcome, current battle-
-     * main-func, and the controller-exec flag bitfield every ~64
-     * frames. The intro phases early-return while
-     * `gBattleControllerExecFlags != 0`, so a stuck non-zero flag
-     * tells us a controller is hung on a command. */
+     * main-func, exec flags, and the player controller's current
+     * function + buffer-A command every ~64 frames. */
     static u32 sCB1FrameCount;
     if ((sCB1FrameCount++ & 0x3F) == 0)
     {
         Mgba_LogLabelInt("CB1_outcome", gBattleOutcome);
         Mgba_LogLabelInt("CB1_func", (u32) gBattleMainFunc);
         Mgba_LogLabelInt("CB1_ctlExec", gBattleControllerExecFlags);
+        Mgba_LogLabelInt("CB1_b0_func", (u32) gBattlerControllerFuncs[0]);
+        Mgba_LogLabelInt("CB1_b0_cmd", gBattleBufferA[0][0]);
     }
 #endif
     gBattleMainFunc();
@@ -4195,16 +4195,26 @@ static void HandleTurnActionSelectionState(void)
     s32 i;
 
 #if TESTING
-    /* Phase 1.3 layer 2c diagnostic: print per-battler sub-state every
-     * ~64 entries so we can see where the action-selection loop is
-     * waiting. gBattleCommunication[battler] holds the sub-state for
-     * each battler (STATE_BEFORE_ACTION_CHOSEN, STATE_WAIT_ACTION_CHOSEN,
-     * STATE_WAIT_ACTION_CONFIRMED_STANDBY, ...). */
-    static u32 sTurnActionCallCount;
-    if ((sTurnActionCallCount++ & 0x3F) == 0)
+    static u8 sLastB0, sLastB1, sLastConfCount, sLastChosen1;
+    static u32 sLastExec;
+    if (gBattleCommunication[0] != sLastB0 || gBattleCommunication[1] != sLastB1
+        || gBattleCommunication[ACTIONS_CONFIRMED_COUNT] != sLastConfCount
+        || gBattleControllerExecFlags != sLastExec
+        || gChosenActionByBattler[1] != sLastChosen1)
     {
-        Mgba_LogLabelInt("turnAction_b0_state", gBattleCommunication[0]);
-        Mgba_LogLabelInt("turnAction_b1_state", gBattleCommunication[1]);
+        Mgba_LogLabelInt("ta_b0", gBattleCommunication[0]);
+        Mgba_LogLabelInt("ta_b1", gBattleCommunication[1]);
+        Mgba_LogLabelInt("ta_count", gBattleCommunication[ACTIONS_CONFIRMED_COUNT]);
+        Mgba_LogLabelInt("ta_exec", gBattleControllerExecFlags);
+        Mgba_LogLabelInt("ta_chosen1", gChosenActionByBattler[1]);
+        Mgba_LogLabelInt("ta_buf1_1", gBattleBufferB[1][1]);
+        Mgba_LogLabelInt("ta_buf1_2", gBattleBufferB[1][2]);
+        Mgba_LogLabelInt("ta_buf1_3", gBattleBufferB[1][3]);
+        sLastB0 = gBattleCommunication[0];
+        sLastB1 = gBattleCommunication[1];
+        sLastConfCount = gBattleCommunication[ACTIONS_CONFIRMED_COUNT];
+        sLastExec = gBattleControllerExecFlags;
+        sLastChosen1 = gChosenActionByBattler[1];
     }
 #endif
 
