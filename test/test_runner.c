@@ -37,6 +37,7 @@
 #include "constants/battle_frontier.h"   /* FRONTIER_MAX_LEVEL_50 etc. */
 #include "constants/battle_frontier_mons.h"  /* NUM_FRONTIER_MONS, FRONTIER_MONS_HIGH_TIER */
 #include "constants/trainers.h"          /* opponent trainer ids */
+#include "test/ebf_test_args.h"          /* gEbfTestArgs (Layer 3 patchelf input) */
 
 #define REG_DEBUG_ENABLE  (*(volatile u16 *) 0x4FFF780)
 #define REG_DEBUG_FLAGS   (*(volatile u16 *) 0x4FFF700)
@@ -189,19 +190,29 @@ static void SetupFirstLightBattle_(void)
 {
     s32 i;
 
-    /* RNG: seed deterministically so the same test ROM produces the
-     * same battle outcome each run (modulo any non-determinism we
-     * haven't tracked down yet). */
-    SeedRng(0x1234);
-    SeedRng2(0x5678);
+    /* RNG: seed from the patchelf-addressable argument block. The
+     * default values (in `ebf_test_args.c`) match the pre-Layer-3
+     * hardcoded constants so an unpatched ROM is byte-identical
+     * to the Layer-2 first-light battle. */
+    SeedRng(gEbfTestArgs.rng_seed_1);
+    SeedRng2(gEbfTestArgs.rng_seed_2);
 
     /* Battle Factory facility state. Most fields default-zero is OK;
      * we set only what `SetPlayerAndOpponentParties` actually reads. */
     gSaveBlock2Ptr->frontier.lvlMode = FRONTIER_LVL_50;
     gSaveBlock2Ptr->frontier.curChallengeBattleNum = 0;
 
+    /* Build the rental array from `gEbfTestArgs`. Non-monId fields
+     * inherit from `sFirstLightRentals` (cosmetic personality /
+     * ability fields don't move the needle for Layer 3 tests). */
     for (i = 0; i < 6; i++)
+    {
         gSaveBlock2Ptr->frontier.rentalMons[i] = sFirstLightRentals[i];
+        if (i < 3)
+            gSaveBlock2Ptr->frontier.rentalMons[i].monId = gEbfTestArgs.player_mons[i];
+        else
+            gSaveBlock2Ptr->frontier.rentalMons[i].monId = gEbfTestArgs.opponent_mons[i - 3];
+    }
 
     /* Build the two parties from the rental array. This is the
      * standard cartridge entry point — populates `gPlayerParty` and
@@ -220,9 +231,15 @@ static void SetupFirstLightBattle_(void)
      * specific facility flag (FACTORY) plus TRAINER. */
     gBattleTypeFlags = BATTLE_TYPE_TRAINER | BATTLE_TYPE_FACTORY;
 
-    /* Trainer ID for the opponent. We pick an arbitrary frontier
-     * trainer here; Layer 3 will parametrise this. */
-    gTrainerBattleOpponent_A = 0;
+    gTrainerBattleOpponent_A = gEbfTestArgs.trainer_id;
+
+    /* Sanity print: schema version + first player species index.
+     * Asserts (a) the patchelf write landed (Python writer can
+     * grep this) and (b) the schema matches what the writer thinks
+     * it does. Quiet on a normal pass — three integers' worth. */
+    MgbaPrintLabelInt_("ebf_args_schema", gEbfTestArgs.schema_version);
+    MgbaPrintLabelInt_("ebf_args_player_mon0", gEbfTestArgs.player_mons[0]);
+    MgbaPrintLabelInt_("ebf_args_opponent_mon0", gEbfTestArgs.opponent_mons[0]);
 }
 
 /*
