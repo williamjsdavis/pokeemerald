@@ -959,10 +959,9 @@ static void CB2_HandleStartBattle(void)
     u8 playerMultiplayerId;
     u8 enemyMultiplayerId;
 
-#if TESTING
-    /* Always-on lightweight probe: print state on transitions.
-     * sInited tracks whether sLastState is meaningful — BSS zero
-     * by default (no .data initializer to upset the test linker). */
+#if TESTING && defined(TEST_HARNESS_VERBOSE)
+    /* Verbose probe: print CB2_HandleStartBattle's state-machine value
+     * on each transition. Useful when debugging intro-phase stalls. */
     {
         static u8 sLastState;
         static u8 sInited;
@@ -3046,22 +3045,32 @@ void BeginBattleIntro(void)
 
 static void BattleMainCB1(void)
 {
-#if TESTING
-    /* Always-on lightweight probe: print gBattleMainFunc transitions
-     * and gBattleOutcome on change. */
+#if TESTING && defined(TEST_HARNESS_VERBOSE)
+    /* Verbose probe: print gBattleMainFunc / outcome / exec-flag and
+     * the opponent's controller func + opcode on change. Gated because
+     * battles transition through hundreds of states; useful when
+     * debugging stalls but noise on a working run. */
     {
         static u32 sLastFunc;
         static u8 sLastOutcome;
+        static u32 sLastExec;
+        static u32 sLastB1Func;
         static u8 sInited;
         if (!sInited
             || (u32) gBattleMainFunc != sLastFunc
-            || gBattleOutcome != sLastOutcome)
+            || gBattleOutcome != sLastOutcome
+            || gBattleControllerExecFlags != sLastExec
+            || (u32) gBattlerControllerFuncs[1] != sLastB1Func)
         {
             Mgba_LogLabelInt("CB1_func", (u32) gBattleMainFunc);
             Mgba_LogLabelInt("CB1_outcome", gBattleOutcome);
             Mgba_LogLabelInt("CB1_exec", gBattleControllerExecFlags);
+            Mgba_LogLabelInt("CB1_b1_func", (u32) gBattlerControllerFuncs[1]);
+            Mgba_LogLabelInt("CB1_b1_cmd", gBattleBufferA[1][0]);
             sLastFunc = (u32) gBattleMainFunc;
             sLastOutcome = gBattleOutcome;
+            sLastExec = gBattleControllerExecFlags;
+            sLastB1Func = (u32) gBattlerControllerFuncs[1];
             sInited = 1;
         }
     }
@@ -4186,7 +4195,10 @@ static void HandleTurnActionSelectionState(void)
 {
     s32 i;
 
-#if TESTING
+#if TESTING && defined(TEST_HARNESS_VERBOSE)
+    /* Verbose probe: per-battler sub-state changes plus the value
+     * the engine will read into gChosenActionByBattler. Useful when
+     * debugging action-selection stalls. */
     {
         static u8 sLastB0, sLastB1, sLastChosen0, sLastChosen1, sInited;
         if (!sInited

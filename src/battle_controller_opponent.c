@@ -242,6 +242,12 @@ static void FreeTrainerSpriteAfterSlide(void)
 
 static void Intro_DelayAndEnd(void)
 {
+#if TESTING
+    /* Headless: no per-frame delay; complete immediately. Mirrors
+     * the player-side Intro_DelayAndEnd TESTING override. */
+    OpponentBufferExecCompleted();
+    return;
+#endif
     if (--gBattleSpritesDataPtr->healthBoxesData[gActiveBattler].introEndDelay == (u8)-1)
     {
         gBattleSpritesDataPtr->healthBoxesData[gActiveBattler].introEndDelay = 0;
@@ -251,6 +257,17 @@ static void Intro_DelayAndEnd(void)
 
 static void Intro_WaitForShinyAnimAndHealthbox(void)
 {
+#if TESTING
+    /* Headless: no sprite-animation or shiny-anim flags ever advance
+     * (sprites aren't initialised in the test ROM — see the
+     * BattleInitAllSprites stub). Skip the wait entirely. Mirrors
+     * the player-side override. Without this, the opponent's
+     * controller func stays stuck here forever, the bit never
+     * clears, and HandleTurnActionSelectionState hangs waiting on
+     * the opponent's CONTROLLER_CHOOSEACTION to complete. */
+    OpponentBufferExecCompleted();
+    return;
+#endif
     bool8 healthboxAnimDone = FALSE;
     bool8 twoMons;
 
@@ -320,6 +337,13 @@ static void Intro_WaitForShinyAnimAndHealthbox(void)
 
 static void Intro_TryShinyAnimShowHealthbox(void)
 {
+#if TESTING
+    /* Headless: no sprites, no animations. Advance directly to the
+     * end-of-intro callback (which is itself stubbed under TESTING).
+     * Mirrors the player-side Intro_TryShinyAnimShowHealthbox override. */
+    gBattlerControllerFuncs[gActiveBattler] = Intro_WaitForShinyAnimAndHealthbox;
+    return;
+#endif
     bool32 bgmRestored = FALSE;
     bool32 battlerAnimsDone = FALSE;
 

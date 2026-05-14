@@ -2677,6 +2677,30 @@ static void HandleChooseActionAfterDma3(void)
 
 static void PlayerHandleChooseAction(void)
 {
+#if TESTING
+    /*
+     * Headless test mode: collapse the dispatcher's multi-frame chain
+     * (PlayerHandleChooseAction -> HandleChooseActionAfterDma3 ->
+     * HandleInputChooseAction) into a single synchronous call. The
+     * normal dispatch installs HandleChooseActionAfterDma3 as a wait
+     * callback that polls IsDma3ManagerBusyWithBgCopy; in test mode
+     * we don't have stable DMA3 state to wait on, and the S6' force-
+     * complete in PlayerBufferRunCommand would stomp the callback
+     * chain before HandleInputChooseAction's TESTING override ever
+     * runs to emit the action. Bypass the chain entirely.
+     *
+     * HandleInputChooseAction has its own TESTING override that
+     * reads gTestPlayerInput, emits the action, and clears the bit
+     * via PlayerBufferExecCompleted. Calling it directly here is
+     * equivalent to letting the engine pump three frames through the
+     * dispatch chain, minus the graphics setup we don't need.
+     *
+     * Mirrors the PlayerHandleChoosePokemon TESTING override below.
+     * See docs/12_test-rom-stubs.md § S6' for context.
+     */
+    HandleInputChooseAction();
+    return;
+#else
     s32 i;
 
     gBattlerControllerFuncs[gActiveBattler] = HandleChooseActionAfterDma3;
@@ -2689,6 +2713,7 @@ static void PlayerHandleChooseAction(void)
     ActionSelectionCreateCursorAt(gActionSelectionCursor[gActiveBattler], 0);
     BattleStringExpandPlaceholdersToDisplayedString(gText_WhatWillPkmnDo);
     BattlePutTextOnWindow(gDisplayedStringBattle, B_WIN_ACTION_PROMPT);
+#endif
 }
 
 static void PlayerHandleYesNoBox(void)
@@ -2731,6 +2756,17 @@ static void PlayerChooseMoveInBattlePalace(void)
 
 static void PlayerHandleChooseMove(void)
 {
+#if TESTING
+    /*
+     * Headless test mode: same collapse as PlayerHandleChooseAction.
+     * Skip InitMoveSelectionsVarsAndStrings (graphics-only) and the
+     * HandleChooseMoveAfterDma3 wait callback. HandleInputChooseMove's
+     * TESTING override reads the scripted move from gTestPlayerInput
+     * and completes inline. See docs/12_test-rom-stubs.md § S6'.
+     */
+    HandleInputChooseMove();
+    return;
+#else
     if (gBattleTypeFlags & BATTLE_TYPE_PALACE)
     {
         *(gBattleStruct->arenaMindPoints + gActiveBattler) = 8;
@@ -2741,6 +2777,7 @@ static void PlayerHandleChooseMove(void)
         InitMoveSelectionsVarsAndStrings();
         gBattlerControllerFuncs[gActiveBattler] = HandleChooseMoveAfterDma3;
     }
+#endif
 }
 
 void InitMoveSelectionsVarsAndStrings(void)
