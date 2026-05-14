@@ -60,11 +60,21 @@ struct TestPlayerInput
 {
     u32 schema_version;                                   /* must equal TEST_PLAYER_INPUT_SCHEMA_VERSION */
     u32 turn_count;                                       /* number of valid entries in `turns` */
-    u32 cursor;                                           /* index of next entry to consume */
+    /*
+     * Phase 1.3 layer 5: the cursor used to live here, but to make
+     * the whole struct patchable via patchelf (which requires the
+     * data to live in `.rodata` so it has a file image; EWRAM is
+     * NOLOAD), we moved the cursor to a separate mutable variable
+     * in test_player_input.c. The reserved field below keeps the
+     * struct size + alignment unchanged so Python's struct.pack
+     * layout doesn't shift mid-version. Bump the schema version on
+     * any layout change other than this rename.
+     */
+    u32 _reserved_cursor;
     struct TestPlayerInputTurn turns[TEST_PLAYER_INPUT_MAX_TURNS];
 };
 
-extern struct TestPlayerInput gTestPlayerInput;
+extern const struct TestPlayerInput gTestPlayerInput;
 
 /*
  * Peek the next scripted action without consuming it. Returns a pointer
