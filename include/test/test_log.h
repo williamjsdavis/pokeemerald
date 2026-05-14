@@ -89,4 +89,28 @@ static inline void Mgba_LogLabelInt(const char *label, u32 value)
     MGBA_LOG_REG_DEBUG_FLAGS = MGBA_LOG_INFO | 0x100;
 }
 
+/*
+ * Prints "LABEL=a:b:c". Used by the Phase 1.3 layer 4 recording hooks
+ * for events that carry more than one field (TURN_MOVE, HP). The
+ * Python parser splits on `=` then `:`. Keep all values within u32 —
+ * the helper has no signed-int support.
+ */
+static inline void Mgba_LogLabel3Int(const char *label, u32 a, u32 b, u32 c)
+{
+    s32 i = 0;
+    while (label[i] && i < 240)
+    {
+        MGBA_LOG_REG_DEBUG_STRING[i] = label[i];
+        i++;
+    }
+    MGBA_LOG_REG_DEBUG_STRING[i++] = '=';
+    i = Mgba_LogPutIntAt_(i, a);
+    MGBA_LOG_REG_DEBUG_STRING[i++] = ':';
+    i = Mgba_LogPutIntAt_(i, b);
+    MGBA_LOG_REG_DEBUG_STRING[i++] = ':';
+    i = Mgba_LogPutIntAt_(i, c);
+    MGBA_LOG_REG_DEBUG_STRING[i] = '\0';
+    MGBA_LOG_REG_DEBUG_FLAGS = MGBA_LOG_INFO | 0x100;
+}
+
 #endif /* GUARD_TEST_LOG_H */

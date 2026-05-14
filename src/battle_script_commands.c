@@ -51,6 +51,9 @@
 #include "constants/rgb.h"
 #include "constants/songs.h"
 #include "constants/trainers.h"
+#if TESTING
+#include "test/test_log.h"  /* Mgba_LogLabel3Int / Mgba_LogLabelInt — Layer 4 recording hooks */
+#endif
 
 extern const u8 *const gBattleScriptsForMoveEffects[];
 
@@ -1197,6 +1200,15 @@ static void Cmd_attackstring(void)
     {
         PrepareStringBattle(STRINGID_USEDMOVE, gBattlerAttacker);
         gHitMarker |= HITMARKER_ATTACKSTRING_PRINTED;
+#if TESTING
+        /* Layer 4 recording hook. The HITMARKER guard ensures this
+         * fires exactly once per move attempt — the engine sets the
+         * flag here and never re-enters this branch for the same
+         * move. Fields: attacker:move:target. Move 0 means the
+         * "no move" sentinel (Struggle gets ID MOVE_STRUGGLE); the
+         * parser distinguishes by checking gCurrentMove != 0. */
+        Mgba_LogLabel3Int("TURN_MOVE", gBattlerAttacker, gCurrentMove, gBattlerTarget);
+#endif
     }
     gBattlescriptCurrInstr++;
     gBattleCommunication[MSG_DISPLAY] = 0;
@@ -1973,6 +1985,19 @@ static void Cmd_datahpupdate(void)
             // Send updated HP
             BtlController_EmitSetMonData(B_COMM_TO_CONTROLLER, REQUEST_HP_BATTLE, 0, sizeof(gBattleMons[gActiveBattler].hp), &gBattleMons[gActiveBattler].hp);
             MarkBattlerForControllerExec(gActiveBattler);
+#if TESTING
+            /* Layer 4 recording hook. HP is up-to-date here — both
+             * the damage / heal branches above wrote to
+             * gBattleMons[active].hp. We log the post-update value
+             * plus maxHP so the Python parser can compute the
+             * fraction without needing the species lookup.
+             * Substitute hits are NOT logged (they take a different
+             * branch above that doesn't reach here). */
+            Mgba_LogLabel3Int("HP",
+                              gActiveBattler,
+                              gBattleMons[gActiveBattler].hp,
+                              gBattleMons[gActiveBattler].maxHP);
+#endif
         }
     }
     else
@@ -3002,6 +3027,12 @@ static void Cmd_tryfaintmon(void)
          && gBattleMons[gActiveBattler].hp == 0)
         {
             gHitMarker |= HITMARKER_FAINTED(gActiveBattler);
+#if TESTING
+            /* Layer 4 recording hook. Fires once per faint — the
+             * HITMARKER_FAINTED bit gates the engine's faint-handling
+             * branch and we set it on the same line. */
+            Mgba_LogLabelInt("FAINT", gActiveBattler);
+#endif
             BattleScriptPush(gBattlescriptCurrInstr + 7);
             gBattlescriptCurrInstr = BS_ptr;
             if (GetBattlerSide(gActiveBattler) == B_SIDE_PLAYER)
