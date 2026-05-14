@@ -90,6 +90,22 @@ static inline void Mgba_LogLabelInt(const char *label, u32 value)
 }
 
 /*
+ * Stops the emulator via SWI 0x3 with `exitCode` in r0. Inline-able
+ * so any TU can exit cleanly without depending on test_runner.c's
+ * internal `MgbaExit_`. Empirically mgba-rom-test-mac doesn't
+ * propagate r0 to the subprocess exit code (see docs/09 caveats),
+ * but the SWI is what stops emulation cleanly — Python parses
+ * stdout sentinels instead.
+ */
+static inline void Mgba_LogExit(u8 exitCode) __attribute__((noreturn));
+static inline void Mgba_LogExit(u8 exitCode)
+{
+    register u32 _exitCode asm("r0") = exitCode;
+    asm("swi 0x3" :: "r" (_exitCode));
+    while (1) { }  /* unreachable: mgba terminates here */
+}
+
+/*
  * Prints "LABEL=a:b:c". Used by the Phase 1.3 layer 4 recording hooks
  * for events that carry more than one field (TURN_MOVE, HP). The
  * Python parser splits on `=` then `:`. Keep all values within u32 —

@@ -30,7 +30,7 @@
 
 #include "global.h"
 
-#define EBF_TEST_ARGS_SCHEMA_VERSION 1
+#define EBF_TEST_ARGS_SCHEMA_VERSION 2
 
 /*
  * Field order is load-bearing — the Python writer reproduces this
@@ -53,7 +53,16 @@ struct EbfTestArgs
     u16 player_mons[3];
     u16 opponent_mons[3];
     u16 trainer_id;
-    u8 _pad[2];
+    /*
+     * Schema v2: in-ROM turn-counter watchdog. When non-zero, the
+     * test harness checks gBattleResults.battleTurnCounter each
+     * frame in BattleMainCB1 and exits via Mgba_LogExit when it
+     * exceeds this threshold (emitting BATTLE_OUTCOME=99 +
+     * WATCHDOG_HIT=<count> sentinels). Zero = no in-ROM limit;
+     * Python's subprocess timeout is the only backstop. Either,
+     * both, or neither limit can be set — whichever fires first.
+     */
+    u16 max_in_rom_turns;
 };
 
 /*

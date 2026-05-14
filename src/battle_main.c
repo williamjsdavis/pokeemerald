@@ -63,6 +63,7 @@
 
 #if TESTING
 #include "test/test_log.h"  /* Phase 1.3 layer 2c diagnostic instrumentation */
+#include "test/ebf_test_args.h"  /* gEbfTestArgs.max_in_rom_turns watchdog */
 #endif
 
 extern const struct BgTemplate gBattleBgTemplates[];
@@ -3045,6 +3046,31 @@ void BeginBattleIntro(void)
 
 static void BattleMainCB1(void)
 {
+#if TESTING
+    /*
+     * In-ROM turn-counter watchdog (Phase 1.5, 2026-05-13).
+     * gEbfTestArgs.max_in_rom_turns is patchable via patchelf. When
+     * non-zero, fire once when gBattleResults.battleTurnCounter
+     * exceeds the threshold. Emit BATTLE_OUTCOME=99 (the "stalled"
+     * sentinel — outside the engine's B_OUTCOME_* range) plus
+     * WATCHDOG_HIT=<count> for diagnostic detail, then PASS / DONE /
+     * SWI 0x3 the same way the normal end-of-battle path does.
+     *
+     * Designed to coexist with Python's subprocess timeout. Either
+     * limit can be set; whichever fires first wins. Setting both
+     * to 0 / None disables both backstops — useful for debugging
+     * a known-long battle interactively.
+     */
+    if (gEbfTestArgs.max_in_rom_turns != 0
+        && gBattleResults.battleTurnCounter >= gEbfTestArgs.max_in_rom_turns)
+    {
+        Mgba_LogLabelInt("BATTLE_OUTCOME", 99);
+        Mgba_LogLabelInt("WATCHDOG_HIT", gBattleResults.battleTurnCounter);
+        Mgba_LogPuts("PASS");
+        Mgba_LogPuts("DONE");
+        Mgba_LogExit(0);
+    }
+#endif
 #if TESTING && defined(TEST_HARNESS_VERBOSE)
     /* Verbose probe: print gBattleMainFunc / outcome / exec-flag and
      * the opponent's controller func + opcode on change. Gated because

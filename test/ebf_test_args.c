@@ -29,4 +29,5 @@ const struct EbfTestArgs gEbfTestArgs =
     .player_mons   = { 700, 730, 800 },
     .opponent_mons = { 701, 731, 801 },
     .trainer_id = 0,
+    .max_in_rom_turns = 0,  /* 0 = no in-ROM turn-counter watchdog */
 };
