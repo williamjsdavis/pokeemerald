@@ -4722,6 +4722,19 @@ static void Cmd_switchinanim(void)
     BtlController_EmitSwitchInAnim(B_COMM_TO_CONTROLLER, gBattlerPartyIndexes[gActiveBattler], gBattlescriptCurrInstr[2]);
     MarkBattlerForControllerExec(gActiveBattler);
 
+#if TESTING
+    /* Layer 4 recording hook (Phase 1.5+, 2026-05-14). Fires once per
+     * switch-in — both initial battle send-in and mid-battle switches
+     * route through Cmd_switchinanim. The party_slot field is the
+     * canonical "which slot did the AI / engine pick" — surfaces ball
+     * tech (see docs/14_observation-space.md § 4b) and equivalent
+     * player-side ordering. */
+    Mgba_LogLabel3Int("SWITCH_IN",
+                      gActiveBattler,
+                      gBattlerPartyIndexes[gActiveBattler],
+                      gBattleMons[gActiveBattler].species);
+#endif
+
     gBattlescriptCurrInstr += 3;
 
     if (gBattleTypeFlags & BATTLE_TYPE_ARENA)
@@ -5792,6 +5805,18 @@ static void Cmd_statusanimation(void)
         {
             BtlController_EmitStatusAnimation(B_COMM_TO_CONTROLLER, FALSE, gBattleMons[gActiveBattler].status1);
             MarkBattlerForControllerExec(gActiveBattler);
+#if TESTING
+            /* Layer 4 recording hook (Phase 1.5+, 2026-05-14). status1
+             * holds the persistent status flag set (BRN/PSN/PAR/SLP/
+             * FRZ/TOX) — non-zero when a status was just applied.
+             * Fires once per visible status-set animation. status2
+             * (CONFUSION/FLINCH/etc.) handled by Cmd_status2animation
+             * if/when needed; v1 covers status1 only per doc 14 § 2.1.2.
+             */
+            Mgba_LogLabel2Int("STATUS",
+                              gActiveBattler,
+                              gBattleMons[gActiveBattler].status1);
+#endif
         }
         gBattlescriptCurrInstr += 2;
     }
@@ -7118,6 +7143,19 @@ static u8 ChangeStatBuffs(s8 statValue, u8 statId, u8 flags, const u8 *BS_ptr)
         gBattleMons[gActiveBattler].statStages[statId] = MIN_STAT_STAGE;
     if (gBattleMons[gActiveBattler].statStages[statId] > MAX_STAT_STAGE)
         gBattleMons[gActiveBattler].statStages[statId] = MAX_STAT_STAGE;
+
+#if TESTING
+    /* Layer 4 recording hook (Phase 1.5+, 2026-05-14). Fires once per
+     * call to ChangeStatBuffs, with the post-clamp stage. The agent
+     * may see "no-change" events when a stat is already at ±6 and the
+     * boost/drop was rejected by the clamp; that's information-free
+     * but harmless. Filter on the Python side if it becomes noise.
+     * See docs/14_observation-space.md § 2.2.6. */
+    Mgba_LogLabel3Int("STAT_STAGE",
+                      gActiveBattler,
+                      statId,
+                      gBattleMons[gActiveBattler].statStages[statId]);
+#endif
 
     if (gBattleCommunication[MULTISTRING_CHOOSER] == B_MSG_STAT_WONT_INCREASE && flags & STAT_CHANGE_ALLOW_PTR)
         gMoveResultFlags |= MOVE_RESULT_MISSED;

@@ -4,6 +4,9 @@
 #include "battle_arena.h"
 #include "battle_pyramid.h"
 #include "battle_util.h"
+#if TESTING
+#include "test/test_log.h"  /* ABILITY_TRIGGER / ITEM_REVEAL recording hooks */
+#endif
 #include "pokemon.h"
 #include "international_string_util.h"
 #include "item.h"
@@ -3192,7 +3195,23 @@ u8 AbilityBattleEffects(u8 caseID, u8 battler, u8 ability, u8 special, u16 moveA
         }
 
         if (effect && caseID < ABILITYEFFECT_CHECK_OTHER_SIDE && gLastUsedAbility != 0xFF)
+        {
             RecordAbilityBattle(battler, gLastUsedAbility);
+#if TESTING
+            /* Layer 4 recording hook (Phase 1.5+, 2026-05-14). Fires
+             * once per visible ability trigger — co-located with the
+             * engine's own RecordAbilityBattle call so the engine's
+             * "the AI saw this ability fire" criterion matches the
+             * agent's. caseID surfaces *why* (switch-in / move /
+             * end-of-turn / etc.) so the parser can distinguish
+             * Intimidate-on-switch from Static-on-hit etc.
+             * See docs/14_observation-space.md § 2.2.3. */
+            Mgba_LogLabel3Int("ABILITY",
+                              battler,
+                              gLastUsedAbility,
+                              caseID);
+#endif
+        }
     }
 
     return effect;
@@ -3808,6 +3827,23 @@ u8 ItemBattleEffects(u8 caseID, u8 battler, bool8 moveTurn)
         }
         break;
     }
+
+#if TESTING
+    /* Layer 4 recording hook (Phase 1.5+, 2026-05-14). Fires once per
+     * call to ItemBattleEffects that produced a visible effect — Lum
+     * cure, Sitrus heal, Choice Band attack lock-in, Chesto Rest, Salac
+     * Speed bump, Focus Band survive, White Herb stat reset, etc. The
+     * `caseID` (Item__Status / Item__OnHP / Item__Switch / ...) tells
+     * the parser *which* activation kind fired. gLastUsedItem holds
+     * the item id. See docs/14_observation-space.md § 2.2.2. */
+    if (effect)
+    {
+        Mgba_LogLabel3Int("ITEM_REVEAL",
+                          battler,
+                          gLastUsedItem,
+                          caseID);
+    }
+#endif
 
     return effect;
 }

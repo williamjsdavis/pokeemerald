@@ -106,6 +106,27 @@ static inline void Mgba_LogExit(u8 exitCode)
 }
 
 /*
+ * Prints "LABEL=a:b". Two-field variant of Mgba_LogLabel3Int; same
+ * splitting rule on the Python side. Used by recording hooks that
+ * carry exactly two fields (STATUS, FAINT-with-cause, etc.).
+ */
+static inline void Mgba_LogLabel2Int(const char *label, u32 a, u32 b)
+{
+    s32 i = 0;
+    while (label[i] && i < 245)
+    {
+        MGBA_LOG_REG_DEBUG_STRING[i] = label[i];
+        i++;
+    }
+    MGBA_LOG_REG_DEBUG_STRING[i++] = '=';
+    i = Mgba_LogPutIntAt_(i, a);
+    MGBA_LOG_REG_DEBUG_STRING[i++] = ':';
+    i = Mgba_LogPutIntAt_(i, b);
+    MGBA_LOG_REG_DEBUG_STRING[i] = '\0';
+    MGBA_LOG_REG_DEBUG_FLAGS = MGBA_LOG_INFO | 0x100;
+}
+
+/*
  * Prints "LABEL=a:b:c". Used by the Phase 1.3 layer 4 recording hooks
  * for events that carry more than one field (TURN_MOVE, HP). The
  * Python parser splits on `=` then `:`. Keep all values within u32 —
