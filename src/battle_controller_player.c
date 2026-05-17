@@ -38,6 +38,7 @@
 
 #if TESTING
 #include "test/test_player_input.h"  /* gTestPlayerInput, TestPlayerInput_Peek / Advance */
+#include "test/test_log.h"            /* Mgba_LogLabel3Int (INVALID_MOVE_SUB hook) */
 #include "constants/species.h"        /* SPECIES_NONE */
 #endif
 
@@ -530,6 +531,38 @@ static void HandleInputChooseMove(void)
     u8 moveIndex = turn->move_index;
     u8 moveTarget;
     u8 multiUseCursor;
+
+    /*
+     * Issue #1 — selection-rejection guard. If the scripted slot has no PP,
+     * is Disabled / Tormented / Taunted / Imprisoned / Choice-Banded / empty
+     * (MOVE_NONE), substitute the first usable slot. Without this the engine
+     * runs the "Selecting...NoPP" / "...DisabledMove" / etc. selection
+     * script and loops back to state STATE_WAIT_ACTION_CHOSEN, which re-feeds
+     * the same input → infinite cycle through HandleTurnActionSelectionState.
+     *
+     * If ALL slots are unusable, leave moveIndex alone — the engine's own
+     * AreAllMovesUnusable() check in STATE_BEFORE_ACTION_CHOSEN routes that
+     * case to the Struggle path, which terminates cleanly.
+     *
+     * See docs/12_test-rom-stubs.md § S12 for full context.
+     */
+    {
+        u8 unusable = CheckMoveLimitations(gActiveBattler, 0, MOVE_LIMITATIONS_ALL);
+        if (unusable != ALL_MOVES_MASK && (unusable & gBitTable[moveIndex]))
+        {
+            u8 i;
+            for (i = 0; i < MAX_MON_MOVES; i++)
+            {
+                if (!(unusable & gBitTable[i]))
+                {
+                    Mgba_LogLabel3Int("INVALID_MOVE_SUB",
+                                      gActiveBattler, moveIndex, i);
+                    moveIndex = i;
+                    break;
+                }
+            }
+        }
+    }
 
     if (moveInfo->moves[moveIndex] == MOVE_CURSE)
     {
