@@ -116,8 +116,19 @@ struct EbfTestArgs
     u16 trainer_ids_so_far[7];
     u8  battle_mode;
     u8  lvl_mode;
-    u8  _pad_v3[2];  /* round struct size up to 52 (4-byte multiple) so
-                      * Python pack length matches C sizeof exactly. */
+    /*
+     * Phase 16.4 — route player move selection through the cartridge's
+     * own AI (BattleAI_ChooseMoveOrAction) instead of reading the
+     * scripted move from gTestPlayerInput. When this is non-zero,
+     * HandleInputChooseMove invokes BattleAI_SetupAIData + the AI's
+     * scoring loop with the player as the active battler — the AI
+     * picks a move using the same scoring code the opponent trainer
+     * would use. The aiFlags are determined by BattleAI_SetupAIData
+     * via GetAiScriptsInBattleFactory() (per-streak, per-Factory rules).
+     * Value: 0 = use scripted input (default), non-zero = use AI.
+     */
+    u8  player_uses_cartridge_ai;
+    u8  _pad_v3;     /* round struct size up to 52 (4-byte multiple) */
 };
 
 /*

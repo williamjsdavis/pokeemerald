@@ -39,6 +39,8 @@
 #if TESTING
 #include "test/test_player_input.h"  /* gTestPlayerInput, TestPlayerInput_Peek / Advance */
 #include "test/test_log.h"            /* Mgba_LogLabel3Int (INVALID_MOVE_SUB hook) */
+#include "test/ebf_test_args.h"       /* gEbfTestArgs.player_uses_cartridge_ai (Phase 16.4) */
+#include "battle_ai_script_commands.h" /* BattleAI_SetupAIData, BattleAI_ChooseMoveOrAction */
 #include "constants/species.h"        /* SPECIES_NONE */
 #endif
 
@@ -531,6 +533,34 @@ static void HandleInputChooseMove(void)
     u8 moveIndex = turn->move_index;
     u8 moveTarget;
     u8 multiUseCursor;
+
+    /*
+     * Phase 16.4 — route player move selection through the cartridge's
+     * own AI. When gEbfTestArgs.player_uses_cartridge_ai is non-zero,
+     * we invoke BattleAI_SetupAIData + BattleAI_ChooseMoveOrAction
+     * with the player as the active battler. The aiFlags get filled
+     * by GetAiScriptsInBattleFactory() per the current factory_streak
+     * (Rounds 1-2 → no flags = random, Rounds 3-4 → CHECK_BAD_MOVE only,
+     * Rounds 5+ → CHECK_BAD_MOVE | TRY_TO_FAINT | CHECK_VIABILITY).
+     * This makes the player behave EXACTLY as the opponent AI would —
+     * cartridge-faithful self-play, no Python re-implementation needed.
+     *
+     * The S12 selection-rejection guard below still runs after this,
+     * so if the AI picks a no-PP / Disabled / etc. move (shouldn't,
+     * because CheckMoveLimitations is honored inside BattleAI_SetupAIData),
+     * S12 substitutes a usable slot as a safety net.
+     */
+    if (gEbfTestArgs.player_uses_cartridge_ai)
+    {
+        u8 ai_chosen;
+        u8 saved_target = gBattlerTarget;
+        BattleAI_SetupAIData(0xF);              /* all 4 moves get initial score 100 */
+        ai_chosen = BattleAI_ChooseMoveOrAction();
+        gBattlerTarget = saved_target;
+        if (ai_chosen < MAX_MON_MOVES)
+            moveIndex = ai_chosen;
+        Mgba_LogLabelInt("PLAYER_AI_MOVE", moveIndex);
+    }
 
     /*
      * Issue #1 — selection-rejection guard. If the scripted slot has no PP,

@@ -39,5 +39,6 @@ const struct EbfTestArgs gEbfTestArgs =
     .trainer_ids_so_far = { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF },
     .battle_mode = 0,  /* FRONTIER_MODE_SINGLES */
     .lvl_mode = 0,     /* FRONTIER_LVL_50 */
-    ._pad_v3 = { 0, 0 },
+    .player_uses_cartridge_ai = 0,  /* 0 = scripted input via gTestPlayerInput */
+    ._pad_v3 = 0,
 };
