@@ -33,11 +33,13 @@
 #include "battle_factory.h"  /* CallBattleFactoryFunction */
 #include "battle_tower.h"    /* gFrontierTempParty[] */
 #include "event_data.h"      /* gSpecialVar_0x8004 / _0x8005 */
+#include "load_save.h"       /* gSaveblock1 (Phase 16.3 var storage) */
 #include "constants/battle.h"            /* B_OUTCOME_* */
 #include "constants/battle_factory.h"    /* BATTLE_FACTORY_FUNC_SET_PARTIES */
 #include "constants/battle_frontier.h"   /* FRONTIER_MAX_LEVEL_50 etc. */
 #include "constants/battle_frontier_mons.h"  /* NUM_FRONTIER_MONS, FRONTIER_MONS_HIGH_TIER */
 #include "constants/trainers.h"          /* opponent trainer ids */
+#include "constants/vars.h"              /* VAR_FRONTIER_BATTLE_MODE (Phase 16.3) */
 #include "test/ebf_test_args.h"          /* gEbfTestArgs (Layer 3 patchelf input) */
 
 #define REG_DEBUG_ENABLE  (*(volatile u16 *) 0x4FFF780)
@@ -179,6 +181,15 @@ static void EmitCartridgeInitialRentals_(void)
 {
     s32 i, j;
 
+#ifdef TEST_HARNESS_VERBOSE
+    /* Diagnostic — verify what streak GenerateInitialRentalMons will
+     * see when it computes challengeNum = streak / 7. */
+    MgbaPrintLabelInt_("rentalgen_streak",
+        gSaveBlock2Ptr->frontier.factoryWinStreaks[0][gSaveBlock2Ptr->frontier.lvlMode]);
+    MgbaPrintLabelInt_("rentalgen_lvlMode", gSaveBlock2Ptr->frontier.lvlMode);
+    MgbaPrintLabelInt_("rentalgen_var_battle_mode", VarGet(VAR_FRONTIER_BATTLE_MODE));
+#endif
+
     /* Run the dispatch — same path the cartridge's
      * BattleFactoryPreBattleRoom script takes via factory_generaterentalmons. */
     gSpecialVar_0x8004 = BATTLE_FACTORY_FUNC_GENERATE_RENTAL_MONS;
@@ -309,10 +320,56 @@ static void SetupFirstLightBattle_(void)
     SeedRng(gEbfTestArgs.rng_seed_1);
     SeedRng2(gEbfTestArgs.rng_seed_2);
 
-    /* Battle Factory facility state. Most fields default-zero is OK;
-     * we set only what `SetPlayerAndOpponentParties` actually reads. */
-    gSaveBlock2Ptr->frontier.lvlMode = FRONTIER_LVL_50;
-    gSaveBlock2Ptr->frontier.curChallengeBattleNum = 0;
+    /* Phase 16.3 prereq — gSaveBlock1Ptr drives VarSet/VarGet for
+     * VAR_FRONTIER_BATTLE_MODE (and any other variables our cartridge
+     * code paths touch). The cartridge's normal init runs through
+     * NewGameInit + intro flows that initialize this; our test harness
+     * skips all of that. Without this, gSaveBlock1Ptr stays NULL
+     * (declared so in load_save.c:41) and VarGet dereferences NULL,
+     * reading whatever garbage happens to be at low memory. */
+    if (gSaveBlock1Ptr == NULL)
+        gSaveBlock1Ptr = (void *)&gSaveblock1;
+
+    /* Battle Factory facility state. Schema v3 (Phase 16.3) transports
+     * accumulated streak / rents count / current-challenge-battle-number /
+     * already-seen-trainer-ids from Python across ROM invocations, so
+     * each new ROM run can resume mid-challenge with correct state.
+     *
+     * Before v3, all these fields defaulted to 0 (zero-initialized save
+     * block) and the cartridge always thought we were at "battle 1 of
+     * challenge 0" — pinning opp generation to tier band 0 regardless of
+     * how many wins had accumulated. See issue #3. */
+    gSaveBlock2Ptr->frontier.lvlMode = gEbfTestArgs.lvl_mode;
+    gSaveBlock2Ptr->frontier.curChallengeBattleNum = gEbfTestArgs.cur_challenge_battle_num;
+    VarSet(VAR_FRONTIER_BATTLE_MODE, gEbfTestArgs.battle_mode);
+
+    /* factoryWinStreaks[battleMode][lvlMode] drives challengeNum =
+     * streak / 7 in GenerateOpponentMons + GenerateInitialRentalMons.
+     * Set ONLY the slot we use; leaves others zero. */
+    gSaveBlock2Ptr->frontier.factoryWinStreaks[gEbfTestArgs.battle_mode][gEbfTestArgs.lvl_mode]
+        = gEbfTestArgs.factory_streak;
+    /* factoryRentsCount drives GetNumPastRentalsRank (rentalRank tier
+     * bump for initial-rental generation). */
+    gSaveBlock2Ptr->frontier.factoryRentsCount[gEbfTestArgs.battle_mode][gEbfTestArgs.lvl_mode]
+        = gEbfTestArgs.factory_rents_count;
+    /* trainerIds[0..curChallengeBattleNum-1] — already-seen trainers
+     * within this challenge. Used by GenerateOpponentMons for the
+     * "no repeat trainer this challenge" check. */
+    for (i = 0; i < 7; i++)
+        gSaveBlock2Ptr->frontier.trainerIds[i] = gEbfTestArgs.trainer_ids_so_far[i];
+
+#ifdef TEST_HARNESS_VERBOSE
+    /* Diagnostic — confirm v3 state-transport fields landed in the
+     * save block. Useful when verifying the patchelf write of schema
+     * v3 didn't get corrupted. */
+    MgbaPrintLabelInt_("v3_streak",
+        gSaveBlock2Ptr->frontier.factoryWinStreaks[gEbfTestArgs.battle_mode][gEbfTestArgs.lvl_mode]);
+    MgbaPrintLabelInt_("v3_rents",
+        gSaveBlock2Ptr->frontier.factoryRentsCount[gEbfTestArgs.battle_mode][gEbfTestArgs.lvl_mode]);
+    MgbaPrintLabelInt_("v3_curBattle", gSaveBlock2Ptr->frontier.curChallengeBattleNum);
+    MgbaPrintLabelInt_("v3_lvlMode", gSaveBlock2Ptr->frontier.lvlMode);
+    MgbaPrintLabelInt_("v3_battleMode", gEbfTestArgs.battle_mode);
+#endif
 
     /* Phase 16.2.5 — sentinel-driven opp mode. When the Python harness
      * sets opponent_mons[0] = 0xFFFF, the battle runs against the

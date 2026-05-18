@@ -30,4 +30,14 @@ const struct EbfTestArgs gEbfTestArgs =
     .opponent_mons = { 701, 731, 801 },
     .trainer_id = 0,
     .max_in_rom_turns = 0,  /* 0 = no in-ROM turn-counter watchdog */
+    /* Schema v3 — state transport. Defaults reproduce a fresh
+     * "battle 1 of challenge 0" matchup so unpatched runs are
+     * cartridge-equivalent to the Layer-2 first-light battle. */
+    .factory_streak = 0,
+    .factory_rents_count = 0,
+    .cur_challenge_battle_num = 0,
+    .trainer_ids_so_far = { 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF },
+    .battle_mode = 0,  /* FRONTIER_MODE_SINGLES */
+    .lvl_mode = 0,     /* FRONTIER_LVL_50 */
+    ._pad_v3 = { 0, 0 },
 };
