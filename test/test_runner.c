@@ -31,6 +31,7 @@
 #include "battle_main.h"     /* CB2_InitBattle */
 #include "battle_setup.h"    /* gTrainerBattleOpponent_A */
 #include "battle_factory.h"  /* CallBattleFactoryFunction */
+#include "battle_tower.h"    /* gFrontierTempParty[] */
 #include "event_data.h"      /* gSpecialVar_0x8004 / _0x8005 */
 #include "constants/battle.h"            /* B_OUTCOME_* */
 #include "constants/battle_factory.h"    /* BATTLE_FACTORY_FUNC_SET_PARTIES */
@@ -152,6 +153,117 @@ static void CB2_TestRunnerEndOfBattle(void)
 }
 
 /*
+ * Phase 16.1 POC — call the cartridge's own GenerateInitialRentalMons
+ * (battle_factory.c:509) to produce a 6-mon candidate pool, then emit
+ * the result so Python can verify cartridge-side rental generation
+ * works from the test runner. This does NOT yet replace the existing
+ * gEbfTestArgs.player_mons / opponent_mons path — the battle still
+ * runs against whatever Python patched in. The cartridge-generated
+ * 6 are emitted alongside for cross-checking.
+ *
+ * Prerequisites the cartridge function reads:
+ *   - gSaveBlock2Ptr->frontier.lvlMode   (set by SetupFirstLightBattle_)
+ *   - gSaveBlock2Ptr->frontier.factoryWinStreaks[mode][lvl]  (default 0)
+ *   - gSaveBlock2Ptr->frontier.factoryRentsCount[mode][lvl]  (default 0)
+ *   - VarGet(VAR_FRONTIER_BATTLE_MODE)   (default 0 = SINGLES)
+ *
+ * The default save block (`gSaveblock2.block` in main.c) is zero-init,
+ * so the streak/rents-count are correctly 0. The challenge number
+ * derives from the streak (0/7 = 0), so we generate from the lowest
+ * tier band (sInitialRentalMonRanges[0..0+8] for Lv50; first entry
+ * 110..199 = the Grimer-to-Furret block).
+ *
+ * Emits one line: `INITIAL_RENTALS=mon0:mon1:mon2:mon3:mon4:mon5`.
+ */
+static void EmitCartridgeInitialRentals_(void)
+{
+    s32 i, j;
+
+    /* Run the dispatch — same path the cartridge's
+     * BattleFactoryPreBattleRoom script takes via factory_generaterentalmons. */
+    gSpecialVar_0x8004 = BATTLE_FACTORY_FUNC_GENERATE_RENTAL_MONS;
+    CallBattleFactoryFunction();
+
+    /* Emit the 6 cartridge-chosen rental monIds in one labelled line.
+     * Format: `INITIAL_RENTALS=a:b:c:d:e:f` (six u16 values, colon-sep). */
+    {
+        const char *label = "INITIAL_RENTALS";
+        j = 0;
+        while (label[j] && j < 250)
+        {
+            REG_DEBUG_STRING[j] = label[j];
+            j++;
+        }
+        REG_DEBUG_STRING[j++] = '=';
+        for (i = 0; i < 6; i++)
+        {
+            if (i > 0)
+                REG_DEBUG_STRING[j++] = ':';
+            j = MgbaPutInt_(j, gSaveBlock2Ptr->frontier.rentalMons[i].monId);
+        }
+        REG_DEBUG_STRING[j] = '\0';
+        REG_DEBUG_FLAGS = MGBA_LOG_INFO | 0x100;
+    }
+}
+
+/*
+ * Phase 16.2 POC — drive the cartridge's GenerateOpponentMons and the
+ * two hint computations (GetOpponentMostCommonMonType,
+ * GetOpponentBattleStyle). Emits:
+ *   OPP_TEAM=monId0:monId1:monId2     (the 3 opp facility-rental indices)
+ *   OPP_TRAINER=trainerId              (which trainer the cartridge picked)
+ *   OPP_TYPE_HINT=type_id              (TYPE_* enum, or NUMBER_OF_MON_TYPES for "no standout")
+ *   OPP_STYLE_HINT=style_id            (FACTORY_STYLE_*, or FACTORY_NUM_STYLES for "tied / no standout")
+ *
+ * Like the rental POC, this runs additively: we generate the opp team
+ * + hints, emit the values, then the existing setup overwrites
+ * gSaveBlock2Ptr->frontier.rentalMons[3..5] with the Python-patched
+ * opponent_mons before the battle starts. So the battle is still
+ * fought against the Python-chosen opp; the cartridge-generated +
+ * cartridge-hinted values are recorded alongside for cross-checking.
+ *
+ * Note: GenerateOpponentMons writes to gFrontierTempParty[0..2], not
+ * directly to rentalMons. The hint computations read from
+ * gFrontierTempParty too. We read from that for the emit.
+ */
+static void EmitCartridgeOppAndHints_(void)
+{
+    s32 i, j;
+
+    /* Generate next opp team (cartridge writes to gFrontierTempParty[0..2]). */
+    gSpecialVar_0x8004 = BATTLE_FACTORY_FUNC_GENERATE_OPPONENT_MONS;
+    CallBattleFactoryFunction();
+
+    /* Emit OPP_TEAM line. */
+    {
+        const char *label = "OPP_TEAM";
+        j = 0;
+        while (label[j] && j < 250) { REG_DEBUG_STRING[j] = label[j]; j++; }
+        REG_DEBUG_STRING[j++] = '=';
+        for (i = 0; i < 3; i++)
+        {
+            if (i > 0) REG_DEBUG_STRING[j++] = ':';
+            j = MgbaPutInt_(j, gFrontierTempParty[i]);
+        }
+        REG_DEBUG_STRING[j] = '\0';
+        REG_DEBUG_FLAGS = MGBA_LOG_INFO | 0x100;
+    }
+
+    /* Emit the picked trainer ID. */
+    MgbaPrintLabelInt_("OPP_TRAINER", gTrainerBattleOpponent_A);
+
+    /* Type hint: returns via gSpecialVar_Result. */
+    gSpecialVar_0x8004 = BATTLE_FACTORY_FUNC_GET_OPPONENT_MON_TYPE;
+    CallBattleFactoryFunction();
+    MgbaPrintLabelInt_("OPP_TYPE_HINT", gSpecialVar_Result);
+
+    /* Style hint. */
+    gSpecialVar_0x8004 = BATTLE_FACTORY_FUNC_GET_OPPONENT_STYLE;
+    CallBattleFactoryFunction();
+    MgbaPrintLabelInt_("OPP_STYLE_HINT", gSpecialVar_Result);
+}
+
+/*
  * Hard-coded matchup for first-light. Picks rental indices from the
  * pool such that the player side has higher-tier sets than the
  * opponent. Once Layer 3 lands, these become inputs patched in via
@@ -201,6 +313,22 @@ static void SetupFirstLightBattle_(void)
      * we set only what `SetPlayerAndOpponentParties` actually reads. */
     gSaveBlock2Ptr->frontier.lvlMode = FRONTIER_LVL_50;
     gSaveBlock2Ptr->frontier.curChallengeBattleNum = 0;
+
+    /* Phase 16.1/16.2 POC: cartridge-side initial-rental pool and
+     * opp-team-with-hints emission. Wrapped in a save/restore of the
+     * RNG state so the battle the engine actually runs (which uses
+     * the Python-patched player/opp teams below) sees the same RNG
+     * state it would have without the POC calls. This keeps the POC
+     * a pure observation point — zero behavioural impact on the
+     * battle. See docs/16_in-rom-factory-orchestration.md. */
+    {
+        u32 savedRng = gRngValue;
+        u32 savedRng2 = gRng2Value;
+        EmitCartridgeInitialRentals_();
+        EmitCartridgeOppAndHints_();
+        gRngValue = savedRng;
+        gRng2Value = savedRng2;
+    }
 
     /* Build the rental array from `gEbfTestArgs`. Non-monId fields
      * inherit from `sFirstLightRentals` (cosmetic personality /
