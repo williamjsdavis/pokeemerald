@@ -387,13 +387,14 @@ static void SetupFirstLightBattle_(void)
      * See docs/16_in-rom-factory-orchestration.md. */
     {
         bool32 useCartridgeOpp = (gEbfTestArgs.opponent_mons[0] == 0xFFFF);
+        bool32 useCartridgePlayer = (gEbfTestArgs.player_mons[0] == 0xFFFF);
         u32 savedRng = gRngValue;
         u32 savedRng2 = gRng2Value;
 
-        EmitCartridgeInitialRentals_();
-        EmitCartridgeOppAndHints_();  /* fills gFrontierTempParty[0..2] */
+        EmitCartridgeInitialRentals_();  /* fills rentalMons[0..5] */
+        EmitCartridgeOppAndHints_();      /* fills gFrontierTempParty[0..2] */
 
-        if (!useCartridgeOpp)
+        if (!useCartridgeOpp && !useCartridgePlayer)
         {
             /* Observation-only: restore RNG so existing battle behaviour
              * is unchanged. */
@@ -403,26 +404,53 @@ static void SetupFirstLightBattle_(void)
         /* In sentinel mode the consumed RNG state stays — the battle
          * proceeds from post-gen RNG as the cartridge would naturally. */
 
-        /* Build the rental array. Player slots [0..2] always come from
-         * Python (Phase 16.2.5 only addresses opp). Opp slots [3..5]
-         * come from gFrontierTempParty if sentinel, else from Python. */
-        for (i = 0; i < 6; i++)
+        /* Phase 16.2.6 — compute the cartridge's per-streak fixed IV
+         * for the player. The cartridge's normal flow does this inside
+         * DoBattleFactorySelectScreen (UI), which we skip. Without
+         * setting this, rentalMons[0..2].ivs stays 0 → all stats at
+         * baseline (very weak). */
         {
-            gSaveBlock2Ptr->frontier.rentalMons[i] = sFirstLightRentals[i];
-            if (i < 3)
+            u8 challengeNum =
+                gSaveBlock2Ptr->frontier.factoryWinStreaks[gEbfTestArgs.battle_mode][gEbfTestArgs.lvl_mode]
+                / FRONTIER_STAGES_PER_CHALLENGE;
+            u8 playerFixedIv = GetFactoryMonFixedIV(challengeNum, FALSE);
+
+            /* Build the rental array. Player slots [0..2]: cartridge's
+             * generated picks if sentinel, else Python's. Opp slots
+             * [3..5]: cartridge's gFrontierTempParty if sentinel,
+             * else Python's. */
+            for (i = 0; i < 6; i++)
             {
-                gSaveBlock2Ptr->frontier.rentalMons[i].monId =
-                    gEbfTestArgs.player_mons[i];
-            }
-            else if (useCartridgeOpp)
-            {
-                gSaveBlock2Ptr->frontier.rentalMons[i].monId =
-                    gFrontierTempParty[i - 3];
-            }
-            else
-            {
-                gSaveBlock2Ptr->frontier.rentalMons[i].monId =
-                    gEbfTestArgs.opponent_mons[i - 3];
+                if (i < 3)
+                {
+                    if (useCartridgePlayer)
+                    {
+                        /* Keep monId from EmitCartridgeInitialRentals_; just
+                         * set cosmetic defaults + cartridge-correct IVs. */
+                        u16 cart_monId = gSaveBlock2Ptr->frontier.rentalMons[i].monId;
+                        gSaveBlock2Ptr->frontier.rentalMons[i] = sFirstLightRentals[i];
+                        gSaveBlock2Ptr->frontier.rentalMons[i].monId = cart_monId;
+                        gSaveBlock2Ptr->frontier.rentalMons[i].ivs = playerFixedIv;
+                    }
+                    else
+                    {
+                        gSaveBlock2Ptr->frontier.rentalMons[i] = sFirstLightRentals[i];
+                        gSaveBlock2Ptr->frontier.rentalMons[i].monId =
+                            gEbfTestArgs.player_mons[i];
+                    }
+                }
+                else if (useCartridgeOpp)
+                {
+                    gSaveBlock2Ptr->frontier.rentalMons[i] = sFirstLightRentals[i];
+                    gSaveBlock2Ptr->frontier.rentalMons[i].monId =
+                        gFrontierTempParty[i - 3];
+                }
+                else
+                {
+                    gSaveBlock2Ptr->frontier.rentalMons[i] = sFirstLightRentals[i];
+                    gSaveBlock2Ptr->frontier.rentalMons[i].monId =
+                        gEbfTestArgs.opponent_mons[i - 3];
+                }
             }
         }
     }
