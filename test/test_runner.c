@@ -314,32 +314,60 @@ static void SetupFirstLightBattle_(void)
     gSaveBlock2Ptr->frontier.lvlMode = FRONTIER_LVL_50;
     gSaveBlock2Ptr->frontier.curChallengeBattleNum = 0;
 
-    /* Phase 16.1/16.2 POC: cartridge-side initial-rental pool and
-     * opp-team-with-hints emission. Wrapped in a save/restore of the
-     * RNG state so the battle the engine actually runs (which uses
-     * the Python-patched player/opp teams below) sees the same RNG
-     * state it would have without the POC calls. This keeps the POC
-     * a pure observation point — zero behavioural impact on the
-     * battle. See docs/16_in-rom-factory-orchestration.md. */
+    /* Phase 16.2.5 — sentinel-driven opp mode. When the Python harness
+     * sets opponent_mons[0] = 0xFFFF, the battle runs against the
+     * cartridge's own GenerateOpponentMons pick (faithful to in-game
+     * orchestration). Otherwise the existing Python-patched opp is
+     * used. Schema is unchanged (no version bump).
+     *
+     * Phase 16.1/16.2 — cartridge-side initial-rental pool + opp team
+     * + hints emission. In non-sentinel mode, wrapped in an RNG save/
+     * restore so the existing Python-patched battle is byte-identical
+     * to the pre-POC behaviour. In sentinel mode, RNG state is kept
+     * post-generation (matches what the cartridge's natural flow
+     * would do — opp gen consumed RNG, then battle continues).
+     *
+     * See docs/16_in-rom-factory-orchestration.md. */
     {
+        bool32 useCartridgeOpp = (gEbfTestArgs.opponent_mons[0] == 0xFFFF);
         u32 savedRng = gRngValue;
         u32 savedRng2 = gRng2Value;
-        EmitCartridgeInitialRentals_();
-        EmitCartridgeOppAndHints_();
-        gRngValue = savedRng;
-        gRng2Value = savedRng2;
-    }
 
-    /* Build the rental array from `gEbfTestArgs`. Non-monId fields
-     * inherit from `sFirstLightRentals` (cosmetic personality /
-     * ability fields don't move the needle for Layer 3 tests). */
-    for (i = 0; i < 6; i++)
-    {
-        gSaveBlock2Ptr->frontier.rentalMons[i] = sFirstLightRentals[i];
-        if (i < 3)
-            gSaveBlock2Ptr->frontier.rentalMons[i].monId = gEbfTestArgs.player_mons[i];
-        else
-            gSaveBlock2Ptr->frontier.rentalMons[i].monId = gEbfTestArgs.opponent_mons[i - 3];
+        EmitCartridgeInitialRentals_();
+        EmitCartridgeOppAndHints_();  /* fills gFrontierTempParty[0..2] */
+
+        if (!useCartridgeOpp)
+        {
+            /* Observation-only: restore RNG so existing battle behaviour
+             * is unchanged. */
+            gRngValue = savedRng;
+            gRng2Value = savedRng2;
+        }
+        /* In sentinel mode the consumed RNG state stays — the battle
+         * proceeds from post-gen RNG as the cartridge would naturally. */
+
+        /* Build the rental array. Player slots [0..2] always come from
+         * Python (Phase 16.2.5 only addresses opp). Opp slots [3..5]
+         * come from gFrontierTempParty if sentinel, else from Python. */
+        for (i = 0; i < 6; i++)
+        {
+            gSaveBlock2Ptr->frontier.rentalMons[i] = sFirstLightRentals[i];
+            if (i < 3)
+            {
+                gSaveBlock2Ptr->frontier.rentalMons[i].monId =
+                    gEbfTestArgs.player_mons[i];
+            }
+            else if (useCartridgeOpp)
+            {
+                gSaveBlock2Ptr->frontier.rentalMons[i].monId =
+                    gFrontierTempParty[i - 3];
+            }
+            else
+            {
+                gSaveBlock2Ptr->frontier.rentalMons[i].monId =
+                    gEbfTestArgs.opponent_mons[i - 3];
+            }
+        }
     }
 
     /* Build the two parties from the rental array. This is the
