@@ -1,6 +1,9 @@
 #include "global.h"
 #include "battle.h"
 #include "battle_factory.h"
+#ifdef TESTING
+#include "test/ebf_test_args.h"   /* Phase 16.5 player_ai_streak_override */
+#endif
 #include "battle_factory_screen.h"
 #include "event_data.h"
 #include "battle_setup.h"
@@ -897,7 +900,23 @@ u32 GetAiScriptsInBattleFactory(void)
     else
     {
         int battleMode = VarGet(VAR_FRONTIER_BATTLE_MODE);
-        int challengeNum = gSaveBlock2Ptr->frontier.factoryWinStreaks[battleMode][lvlMode] / FRONTIER_STAGES_PER_CHALLENGE;
+        u16 streak = gSaveBlock2Ptr->frontier.factoryWinStreaks[battleMode][lvlMode];
+
+#ifdef TESTING
+        /*
+         * Phase 16.5 — when the test harness sets a player-side AI
+         * streak override, use it for the PLAYER's AI invocations
+         * only. Opp invocations still see the natural save-block
+         * streak. The sentinel 0xFFFF means "no override".
+         */
+        if (gEbfTestArgs.player_ai_streak_override != 0xFFFF
+            && (gActiveBattler & BIT_SIDE) == B_SIDE_PLAYER)
+        {
+            streak = gEbfTestArgs.player_ai_streak_override;
+        }
+#endif
+
+        int challengeNum = streak / FRONTIER_STAGES_PER_CHALLENGE;
 
         if (gTrainerBattleOpponent_A == TRAINER_FRONTIER_BRAIN)
             return AI_SCRIPT_CHECK_BAD_MOVE | AI_SCRIPT_TRY_TO_FAINT | AI_SCRIPT_CHECK_VIABILITY;

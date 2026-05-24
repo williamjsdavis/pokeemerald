@@ -41,4 +41,10 @@ const struct EbfTestArgs gEbfTestArgs =
     .lvl_mode = 0,     /* FRONTIER_LVL_50 */
     .player_uses_cartridge_ai = 0,  /* 0 = scripted input via gTestPlayerInput */
     ._pad_v3 = 0,
+    /* Schema v4 — Phase 16.5 split-streak override. 0xFFFF =
+     * "no override" (use save-block streak for both sides). When
+     * non-sentinel, the value is used as the streak for the player's
+     * AI flag selection only; opp still uses the save block. */
+    .player_ai_streak_override = 0xFFFF,
+    ._pad_v4 = { 0, 0 },
 };

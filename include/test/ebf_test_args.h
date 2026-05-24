@@ -30,7 +30,7 @@
 
 #include "global.h"
 
-#define EBF_TEST_ARGS_SCHEMA_VERSION 3
+#define EBF_TEST_ARGS_SCHEMA_VERSION 4
 
 /*
  * Field order is load-bearing — the Python writer reproduces this
@@ -128,7 +128,25 @@ struct EbfTestArgs
      * Value: 0 = use scripted input (default), non-zero = use AI.
      */
     u8  player_uses_cartridge_ai;
-    u8  _pad_v3;     /* round struct size up to 52 (4-byte multiple) */
+    u8  _pad_v3;     /* alignment to 16-bit boundary for v4 field */
+    /*
+     * Phase 16.5 (schema v4): split-streak override for the PLAYER's
+     * AI flag selection. When non-sentinel (i.e. != 0xFFFF),
+     * GetAiScriptsInBattleFactory() reads this value INSTEAD of the
+     * save-block streak — but ONLY when running for the player's
+     * side (gActiveBattler is on B_SIDE_PLAYER). Opp AI invocations
+     * still use the natural save-block streak.
+     *
+     * This lets us test "player uses R5+ smart AI from battle 1
+     * while opp tier band follows natural progression" — disentangling
+     * the AI tactical quality from the opp tier-band difficulty cost
+     * (which `factory_streak` controls).
+     *
+     * Default 0xFFFF = use save-block streak for both sides
+     * (pre-Phase-16.5 behaviour, no override).
+     */
+    u16 player_ai_streak_override;
+    u8  _pad_v4[2];   /* round struct size up to 56 (4-byte multiple) */
 };
 
 /*
