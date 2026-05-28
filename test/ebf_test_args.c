@@ -47,4 +47,10 @@ const struct EbfTestArgs gEbfTestArgs =
      * AI flag selection only; opp still uses the save block. */
     .player_ai_streak_override = 0xFFFF,
     ._pad_v4 = { 0, 0 },
+    /* Schema v5 — Phase 1.5 frame-level callback. 0 = scripted/AI
+     * mode (existing behaviour, default). Non-zero = interactive
+     * mode (player controller calls EbfInteractiveYield once per
+     * move decision). */
+    .player_uses_interactive_callback = 0,
+    ._pad_v5 = { 0, 0, 0 },
 };

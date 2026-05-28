@@ -40,6 +40,7 @@
 #include "test/test_player_input.h"  /* gTestPlayerInput, TestPlayerInput_Peek / Advance */
 #include "test/test_log.h"            /* Mgba_LogLabel3Int (INVALID_MOVE_SUB hook) */
 #include "test/ebf_test_args.h"       /* gEbfTestArgs.player_uses_cartridge_ai (Phase 16.4) */
+#include "test/ebf_interactive.h"     /* EbfInteractiveYield, gEbfInteractiveAction (Phase 1.5) */
 #include "battle_ai_script_commands.h" /* BattleAI_SetupAIData, BattleAI_ChooseMoveOrAction */
 #include "constants/species.h"        /* SPECIES_NONE */
 #endif
@@ -560,6 +561,38 @@ static void HandleInputChooseMove(void)
         if (ai_chosen < MAX_MON_MOVES)
             moveIndex = ai_chosen;
         Mgba_LogLabelInt("PLAYER_AI_MOVE", moveIndex);
+    }
+
+    /*
+     * Phase 1.5 — frame-level callback. When the harness has opted
+     * into interactive mode, yield to Python here. Python (attached
+     * via mgba's GDB server) has set a breakpoint at
+     * EbfInteractiveYield; it pauses execution, reads state, writes
+     * the chosen action into gEbfInteractiveAction, and resumes.
+     * On return, we adopt the action Python provided.
+     *
+     * See docs/19_frame-level-callback-design.md for the bridge
+     * protocol details.
+     *
+     * Per-turn cost vs the scripted path is one extra function call
+     * + a GDB round-trip (10-30 ms wall clock). At ~10 turns/battle
+     * that's ~100-300 ms of overhead per battle.
+     */
+    if (gEbfTestArgs.player_uses_interactive_callback)
+    {
+        Mgba_LogLabelInt("INTERACTIVE_YIELD", 1);
+        EbfInteractiveYield();
+        /* After Python writes to gEbfInteractiveAction, consume it.
+         * For v1 we honour move_index for USE_MOVE only; SWITCH
+         * support is a follow-up (the existing scripted SWITCH path
+         * works via TestPlayerInput, not this buffer). */
+        if (gEbfInteractiveAction.schema_version
+            == EBF_INTERACTIVE_ACTION_SCHEMA_VERSION
+            && gEbfInteractiveAction.move_index < MAX_MON_MOVES)
+        {
+            moveIndex = gEbfInteractiveAction.move_index;
+        }
+        Mgba_LogLabelInt("PLAYER_INTERACTIVE_MOVE", moveIndex);
     }
 
     /*

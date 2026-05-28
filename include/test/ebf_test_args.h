@@ -30,7 +30,7 @@
 
 #include "global.h"
 
-#define EBF_TEST_ARGS_SCHEMA_VERSION 4
+#define EBF_TEST_ARGS_SCHEMA_VERSION 5
 
 /*
  * Field order is load-bearing — the Python writer reproduces this
@@ -146,7 +146,21 @@ struct EbfTestArgs
      * (pre-Phase-16.5 behaviour, no override).
      */
     u16 player_ai_streak_override;
-    u8  _pad_v4[2];   /* round struct size up to 56 (4-byte multiple) */
+    u8  _pad_v4[2];   /* alignment to 4-byte boundary for v5 fields */
+    /*
+     * Phase 1.5 (schema v5): frame-level callback — when non-zero,
+     * the player controller calls EbfInteractiveYield() once per
+     * move decision instead of (or in addition to) consuming a
+     * pre-committed action from gTestPlayerInput. Python attaches
+     * via mgba's GDB server, sets a breakpoint at the yield, and
+     * writes the next action into gEbfInteractiveAction before
+     * resuming. See docs/19_frame-level-callback-design.md.
+     *
+     * Value: 0 = scripted/AI mode (existing behaviour, default),
+     *        non-zero = interactive mode (yield each turn).
+     */
+    u8  player_uses_interactive_callback;
+    u8  _pad_v5[3];   /* round struct size up to 60 (4-byte multiple) */
 };
 
 /*
